@@ -188,3 +188,145 @@ pub fn reset_ball_and_paddle(
         ball.velocity = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app
+    }
+
+    // --- spawn_game ---
+
+    #[test]
+    fn spawn_game_creates_one_paddle() {
+        let mut app = test_app();
+        app.add_systems(Startup, spawn_game);
+        app.update();
+
+        let mut q = app.world_mut().query::<&Paddle>();
+        let count = q.iter(app.world()).count();
+        assert_eq!(count, 1, "Should spawn exactly one paddle");
+    }
+
+    #[test]
+    fn spawn_game_creates_one_ball() {
+        let mut app = test_app();
+        app.add_systems(Startup, spawn_game);
+        app.update();
+
+        let mut q = app.world_mut().query::<&Ball>();
+        let count = q.iter(app.world()).count();
+        assert_eq!(count, 1, "Should spawn exactly one ball");
+    }
+
+    #[test]
+    fn spawn_game_creates_fifty_bricks() {
+        let mut app = test_app();
+        app.add_systems(Startup, spawn_game);
+        app.update();
+
+        let mut q = app.world_mut().query::<&Brick>();
+        let count = q.iter(app.world()).count();
+        assert_eq!(
+            count,
+            BRICK_ROWS * BRICK_COLS,
+            "Should spawn BRICK_ROWS * BRICK_COLS bricks"
+        );
+    }
+
+    #[test]
+    fn spawn_game_creates_three_walls() {
+        let mut app = test_app();
+        app.add_systems(Startup, spawn_game);
+        app.update();
+
+        let mut q = app.world_mut().query::<&Wall>();
+        let count = q.iter(app.world()).count();
+        assert_eq!(count, 3, "Should spawn 3 walls (top, left, right)");
+    }
+
+    #[test]
+    fn spawn_game_entities_have_colliders() {
+        let mut app = test_app();
+        app.add_systems(Startup, spawn_game);
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Paddle, &Collider)>();
+        let paddle_colliders = q.iter(app.world()).count();
+        assert_eq!(paddle_colliders, 1, "Paddle should have Collider");
+
+        let mut q = app.world_mut().query::<(&Brick, &Collider)>();
+        let brick_colliders = q.iter(app.world()).count();
+        assert_eq!(
+            brick_colliders,
+            BRICK_ROWS * BRICK_COLS,
+            "All bricks should have Collider"
+        );
+
+        let mut q = app.world_mut().query::<(&Wall, &Collider)>();
+        let wall_colliders = q.iter(app.world()).count();
+        assert_eq!(wall_colliders, 3, "All walls should have Collider");
+    }
+
+    // --- despawn_overlay ---
+
+    #[test]
+    fn despawn_overlay_removes_overlay_entities() {
+        let mut app = test_app();
+        app.add_systems(Update, despawn_overlay);
+
+        app.world_mut().spawn(OverlayUi);
+        app.world_mut().spawn(OverlayUi);
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        let before = q.iter(app.world()).count();
+        assert_eq!(before, 2);
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        let after = q.iter(app.world()).count();
+        assert_eq!(after, 0, "All OverlayUi entities should be despawned");
+    }
+
+    // --- reset_ball_and_paddle ---
+
+    #[test]
+    fn reset_ball_and_paddle_resets_positions() {
+        let mut app = test_app();
+        app.add_systems(Update, reset_ball_and_paddle);
+
+        // Spawn paddle at off-center position
+        app.world_mut()
+            .spawn((Transform::from_xyz(200.0, PADDLE_Y, 0.0), Paddle));
+
+        // Spawn ball at off-center position with different velocity
+        app.world_mut().spawn((
+            Transform::from_xyz(100.0, 50.0, 1.0),
+            Ball {
+                velocity: Vec2::new(-100.0, -200.0),
+            },
+        ));
+
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Transform, &Paddle)>();
+        let paddle_x = q.iter(app.world()).next().unwrap().0.translation.x;
+        assert!((paddle_x).abs() < 0.01, "Paddle x should reset to 0");
+
+        let mut q = app.world_mut().query::<(&Transform, &Ball)>();
+        let (ball_transform, ball) = q.iter(app.world()).next().unwrap();
+        assert!(
+            (ball_transform.translation.x).abs() < 0.01,
+            "Ball x should reset to 0"
+        );
+        assert!(
+            ball.velocity.y > 0.0,
+            "Ball should be moving upward after reset"
+        );
+    }
+}

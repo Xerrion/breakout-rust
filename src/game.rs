@@ -134,3 +134,96 @@ pub fn respawn_on_menu_enter(commands: Commands, paddle_query: Query<&Paddle>) {
         crate::setup::spawn_game(commands);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin));
+        app.init_state::<GameState>();
+        app.init_resource::<Scoreboard>();
+        app.init_resource::<Lives>();
+        app
+    }
+
+    // --- check_game_over ---
+
+    #[test]
+    fn game_over_when_no_lives() {
+        let mut app = test_app();
+        app.add_systems(Update, check_game_over);
+        app.world_mut().resource_mut::<Lives>().count = 0;
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        let overlay_count = q.iter(app.world()).count();
+        assert_eq!(overlay_count, 1, "Should spawn a game-over overlay");
+    }
+
+    #[test]
+    fn no_game_over_with_lives_remaining() {
+        let mut app = test_app();
+        app.add_systems(Update, check_game_over);
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        let overlay_count = q.iter(app.world()).count();
+        assert_eq!(overlay_count, 0, "Should not spawn overlay when lives > 0");
+    }
+
+    // --- check_victory ---
+
+    #[test]
+    fn victory_when_no_bricks() {
+        let mut app = test_app();
+        app.add_systems(Update, check_victory);
+        // No bricks spawned
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        let overlay_count = q.iter(app.world()).count();
+        assert_eq!(overlay_count, 1, "Should spawn a victory overlay");
+    }
+
+    #[test]
+    fn no_victory_with_bricks_remaining() {
+        let mut app = test_app();
+        app.add_systems(Update, check_victory);
+
+        // Spawn a brick
+        app.world_mut()
+            .spawn((Transform::from_xyz(0.0, 100.0, 0.0), Brick));
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        let overlay_count = q.iter(app.world()).count();
+        assert_eq!(
+            overlay_count, 0,
+            "Should not spawn overlay when bricks remain"
+        );
+    }
+
+    // --- update_scoreboard_ui ---
+
+    #[test]
+    fn scoreboard_ui_updates_on_change() {
+        let mut app = test_app();
+        app.add_systems(Update, update_scoreboard_ui);
+
+        app.world_mut().spawn((Text::new("Score: 0"), ScoreboardUi));
+
+        app.world_mut().resource_mut::<Scoreboard>().score = 42;
+
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Text, &ScoreboardUi)>();
+        let text = q.iter(app.world()).next().unwrap().0;
+        assert_eq!(**text, "Score: 42");
+    }
+}

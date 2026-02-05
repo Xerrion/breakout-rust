@@ -143,3 +143,146 @@ pub fn check_aabb_collision(
         Some(CollisionSide::Bottom)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- check_aabb_collision tests ---
+
+    #[test]
+    fn no_collision_when_far_apart() {
+        let result = check_aabb_collision(
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(100.0, 100.0),
+            Vec2::new(10.0, 10.0),
+        );
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn no_collision_when_touching_edge() {
+        // Exactly touching: overlap = 0, which is <= 0, so no collision
+        let result = check_aabb_collision(
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(10.0, 10.0),
+        );
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn collision_from_top() {
+        // Ball is above the target, slightly overlapping
+        let result = check_aabb_collision(
+            Vec2::new(0.0, 14.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 0.0),
+            Vec2::new(20.0, 20.0),
+        );
+        assert_eq!(result, Some(CollisionSide::Top));
+    }
+
+    #[test]
+    fn collision_from_bottom() {
+        // Ball is below the target, slightly overlapping
+        let result = check_aabb_collision(
+            Vec2::new(0.0, -14.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 0.0),
+            Vec2::new(20.0, 20.0),
+        );
+        assert_eq!(result, Some(CollisionSide::Bottom));
+    }
+
+    #[test]
+    fn collision_from_left() {
+        // Ball is to the left, slightly overlapping
+        let result = check_aabb_collision(
+            Vec2::new(-14.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 0.0),
+            Vec2::new(20.0, 20.0),
+        );
+        assert_eq!(result, Some(CollisionSide::Left));
+    }
+
+    #[test]
+    fn collision_from_right() {
+        // Ball is to the right, slightly overlapping
+        let result = check_aabb_collision(
+            Vec2::new(14.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 0.0),
+            Vec2::new(20.0, 20.0),
+        );
+        assert_eq!(result, Some(CollisionSide::Right));
+    }
+
+    #[test]
+    fn collision_prefers_x_axis_when_x_overlap_smaller() {
+        // Ball overlaps target with smaller x-overlap than y-overlap
+        // Ball at x=9, target at x=0, both 10 wide: overlap_x = 5+5-9 = 1
+        // Ball at y=0, target at y=0, both 10 tall: overlap_y = 5+5-0 = 10
+        // overlap_x < overlap_y → returns Right (diff.x > 0)
+        let result = check_aabb_collision(
+            Vec2::new(9.0, 0.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 10.0),
+        );
+        assert_eq!(result, Some(CollisionSide::Right));
+    }
+
+    #[test]
+    fn collision_prefers_y_axis_when_y_overlap_smaller() {
+        // Ball overlaps target with smaller y-overlap than x-overlap
+        // Ball at x=0, target at x=0, both 10 wide: overlap_x = 10
+        // Ball at y=9, target at y=0, both 10 tall: overlap_y = 5+5-9 = 1
+        // overlap_x > overlap_y → returns Top (diff.y > 0)
+        let result = check_aabb_collision(
+            Vec2::new(0.0, 9.0),
+            Vec2::new(10.0, 10.0),
+            Vec2::new(0.0, 0.0),
+            Vec2::new(10.0, 10.0),
+        );
+        assert_eq!(result, Some(CollisionSide::Top));
+    }
+
+    // --- Constant sanity checks ---
+
+    #[test]
+    fn window_dimensions_positive() {
+        assert!(WINDOW_WIDTH > 0.0);
+        assert!(WINDOW_HEIGHT > 0.0);
+    }
+
+    #[test]
+    fn entity_dimensions_positive() {
+        assert!(PADDLE_WIDTH > 0.0);
+        assert!(PADDLE_HEIGHT > 0.0);
+        assert!(BALL_SIZE > 0.0);
+        assert!(BRICK_WIDTH > 0.0);
+        assert!(BRICK_HEIGHT > 0.0);
+        assert!(WALL_THICKNESS > 0.0);
+        assert!(PADDLE_SPEED > 0.0);
+        assert!(BALL_SPEED > 0.0);
+    }
+
+    #[test]
+    fn brick_grid_fits_in_window() {
+        let grid_width = BRICK_COLS as f32 * (BRICK_WIDTH + BRICK_GAP) - BRICK_GAP;
+        assert!(grid_width < WINDOW_WIDTH, "Brick grid wider than window");
+    }
+
+    #[test]
+    fn default_resources_valid() {
+        let scoreboard = Scoreboard::default();
+        assert_eq!(scoreboard.score, 0);
+
+        let lives = Lives::default();
+        assert!(lives.count > 0);
+    }
+}

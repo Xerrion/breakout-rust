@@ -43,15 +43,9 @@ pub struct OverlayUi;
 
 // --- Resources ---
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct Scoreboard {
     pub score: u32,
-}
-
-impl Default for Scoreboard {
-    fn default() -> Self {
-        Self { score: 0 }
-    }
 }
 
 #[derive(Resource)]

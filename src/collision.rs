@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::components::*;
 
 /// Ball vs walls and paddle — reflect velocity on collision.
+#[allow(clippy::type_complexity)]
 pub fn ball_collision_walls_and_paddle(
     mut ball_query: Query<(&mut Transform, &mut Ball)>,
     collider_query: Query<
@@ -89,6 +90,7 @@ pub fn ball_collision_walls_and_paddle(
 }
 
 /// Ball vs bricks — destroy brick, reflect, and add score.
+#[allow(clippy::type_complexity)]
 pub fn ball_collision_bricks(
     mut commands: Commands,
     mut ball_query: Query<(&mut Transform, &mut Ball)>,

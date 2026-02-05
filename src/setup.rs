@@ -40,14 +40,14 @@ pub fn spawn_game(mut commands: Commands) {
     let grid_start_x = -grid_width / 2.0 + BRICK_WIDTH / 2.0;
     let grid_start_y = WINDOW_HEIGHT / 2.0 - 80.0;
 
-    for row in 0..BRICK_ROWS {
+    for (row, &color) in BRICK_COLORS.iter().enumerate().take(BRICK_ROWS) {
         for col in 0..BRICK_COLS {
             let x = grid_start_x + col as f32 * (BRICK_WIDTH + BRICK_GAP);
             let y = grid_start_y - row as f32 * (BRICK_HEIGHT + BRICK_GAP);
 
             commands.spawn((
                 Sprite {
-                    color: BRICK_COLORS[row],
+                    color,
                     custom_size: Some(Vec2::new(BRICK_WIDTH, BRICK_HEIGHT)),
                     ..default()
                 },

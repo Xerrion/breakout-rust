@@ -34,7 +34,7 @@ pub fn check_game_over(
     if lives.count == 0 {
         next_state.set(GameState::GameOver);
         commands.spawn((
-            Text::new(format!("GAME OVER\n\nPress SPACE to restart")),
+            Text::new("GAME OVER\n\nPress SPACE to restart"),
             TextFont {
                 font_size: 40.0,
                 ..default()
@@ -96,6 +96,7 @@ pub fn menu_input(
 }
 
 /// Handles SPACE press on GameOver/Victory screens to restart.
+#[allow(clippy::too_many_arguments)]
 pub fn restart_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut next_state: ResMut<NextState<GameState>>,

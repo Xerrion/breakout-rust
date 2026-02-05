@@ -43,6 +43,7 @@ fn main() {
                 movement::move_ball,
                 collision::ball_collision_walls_and_paddle,
                 collision::ball_collision_bricks,
+                collision::clamp_ball_to_bounds,
                 collision::ball_death_zone,
                 game::update_scoreboard_ui,
                 game::update_lives_ui,
@@ -51,6 +52,13 @@ fn main() {
             )
                 .chain()
                 .run_if(in_state(GameState::Playing)),
+        )
+        // Paused state
+        .add_systems(OnEnter(GameState::Paused), game::spawn_pause_overlay)
+        .add_systems(OnExit(GameState::Paused), setup::despawn_overlay)
+        .add_systems(
+            Update,
+            game::pause_input.run_if(in_state(GameState::Playing).or(in_state(GameState::Paused))),
         )
         // GameOver / Victory
         .add_systems(OnExit(GameState::GameOver), setup::despawn_overlay)

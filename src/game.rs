@@ -129,11 +129,71 @@ pub fn restart_input(
 }
 
 /// Re-spawns game entities when entering Menu (after a restart).
-pub fn respawn_on_menu_enter(commands: Commands, paddle_query: Query<&Paddle>) {
+pub fn respawn_on_menu_enter(
+    commands: Commands,
+    paddle_query: Query<&Paddle>,
+    mut first_run: Local<bool>,
+) {
+    // Skip on first run — entities already spawned by Startup, but commands
+    // haven't been applied yet so the query would be empty.
+    if !*first_run {
+        *first_run = true;
+        return;
+    }
+
     // Only respawn if there's no paddle (i.e., coming from a restart)
     if paddle_query.is_empty() {
         crate::setup::spawn_game(commands);
     }
+}
+
+/// Toggles pause when ESC is pressed during gameplay.
+pub fn pause_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    state: Res<State<GameState>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keyboard.just_pressed(KeyCode::Escape) {
+        match state.get() {
+            GameState::Playing => next_state.set(GameState::Paused),
+            GameState::Paused => next_state.set(GameState::Playing),
+            _ => {}
+        }
+    }
+}
+
+/// Spawns the pause overlay with semi-transparent background.
+pub fn spawn_pause_overlay(mut commands: Commands) {
+    // Semi-transparent full-screen background
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+        OverlayUi,
+    ));
+
+    // Pause text
+    commands.spawn((
+        Text::new("PAUSED\n\nPress ESC to resume"),
+        TextFont {
+            font_size: 40.0,
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        TextLayout::new_with_justify(Justify::Center),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(35.0),
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        OverlayUi,
+    ));
 }
 
 #[cfg(test)]
@@ -146,6 +206,7 @@ mod tests {
         app.init_state::<GameState>();
         app.init_resource::<Scoreboard>();
         app.init_resource::<Lives>();
+        app.init_resource::<ButtonInput<KeyCode>>();
         app
     }
 
@@ -226,5 +287,112 @@ mod tests {
         let mut q = app.world_mut().query::<(&Text, &ScoreboardUi)>();
         let text = q.iter(app.world()).next().unwrap().0;
         assert_eq!(**text, "Score: 42");
+    }
+
+    // --- pause_input ---
+
+    #[test]
+    fn pause_input_pauses_game() {
+        let mut app = test_app();
+        app.add_systems(Update, pause_input);
+
+        // Set state to Playing
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        app.update();
+
+        // Simulate ESC press - press key, then update
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+
+        // State transitions are applied in StateTransition schedule,
+        // need another update for the state to actually change
+        app.update();
+
+        let state = app.world().resource::<State<GameState>>();
+        assert_eq!(
+            *state.get(),
+            GameState::Paused,
+            "ESC in Playing should transition to Paused"
+        );
+    }
+
+    #[test]
+    fn pause_input_resumes_game() {
+        let mut app = test_app();
+        app.add_systems(Update, pause_input);
+
+        // Set state to Paused
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Paused);
+        app.update();
+
+        // Simulate ESC press - press key, then update
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+
+        // State transitions are applied in StateTransition schedule,
+        // need another update for the state to actually change
+        app.update();
+
+        let state = app.world().resource::<State<GameState>>();
+        assert_eq!(
+            *state.get(),
+            GameState::Playing,
+            "ESC in Paused should transition to Playing"
+        );
+    }
+
+    #[test]
+    fn pause_input_ignored_in_menu() {
+        let mut app = test_app();
+        app.add_systems(Update, pause_input);
+
+        // State starts in Menu (default)
+        app.update();
+
+        // Simulate ESC press
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+
+        let state = app.world().resource::<State<GameState>>();
+        assert_eq!(
+            *state.get(),
+            GameState::Menu,
+            "ESC in Menu should not change state"
+        );
+    }
+
+    #[test]
+    fn pause_input_ignored_in_game_over() {
+        let mut app = test_app();
+        app.add_systems(Update, pause_input);
+
+        // Set state to GameOver
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::GameOver);
+        app.update();
+
+        // Simulate ESC press
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+
+        let state = app.world().resource::<State<GameState>>();
+        assert_eq!(
+            *state.get(),
+            GameState::GameOver,
+            "ESC in GameOver should not change state"
+        );
     }
 }

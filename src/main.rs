@@ -1,3 +1,4 @@
+mod background;
 mod collision;
 mod components;
 mod game;
@@ -18,6 +19,7 @@ fn main() {
             }),
             ..default()
         }))
+        .add_plugins(background::BackgroundPlugin)
         // State
         .init_state::<GameState>()
         // Resources

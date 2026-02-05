@@ -168,6 +168,29 @@ pub fn ball_death_zone(
     }
 }
 
+/// Clamps ball position to stay within playable bounds (safety net).
+pub fn clamp_ball_to_bounds(mut ball_query: Query<(&mut Transform, &mut Ball)>) {
+    let Ok((mut transform, mut ball)) = ball_query.single_mut() else {
+        return;
+    };
+
+    let min_x = -WINDOW_WIDTH / 2.0 + WALL_THICKNESS + BALL_SIZE / 2.0;
+    let max_x = WINDOW_WIDTH / 2.0 - WALL_THICKNESS - BALL_SIZE / 2.0;
+
+    // Clamp X and reflect velocity if ball was outside bounds
+    if transform.translation.x < min_x {
+        transform.translation.x = min_x;
+        if ball.velocity.x < 0.0 {
+            ball.velocity.x = -ball.velocity.x;
+        }
+    } else if transform.translation.x > max_x {
+        transform.translation.x = max_x;
+        if ball.velocity.x > 0.0 {
+            ball.velocity.x = -ball.velocity.x;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,5 +440,156 @@ mod tests {
 
         let lives = app.world().resource::<Lives>();
         assert_eq!(lives.count, 3, "Lives should remain unchanged");
+    }
+
+    // --- ball pushed through wall (regression test) ---
+
+    #[test]
+    fn ball_cannot_escape_through_wall() {
+        let mut app = test_app();
+        app.add_systems(
+            Update,
+            (ball_collision_walls_and_paddle, clamp_ball_to_bounds).chain(),
+        );
+
+        // Calculate positions
+        let left_wall_x = -WINDOW_WIDTH / 2.0 - WALL_THICKNESS / 2.0;
+        let min_valid_ball_x = -WINDOW_WIDTH / 2.0 + WALL_THICKNESS + BALL_SIZE / 2.0;
+
+        // Ball positioned just inside the left wall
+        let ball_x = min_valid_ball_x + 1.0;
+
+        // Paddle overlapping the ball from the right, pushing it left
+        let paddle_x = ball_x + PADDLE_WIDTH / 2.0 - 5.0; // overlap by 5 pixels
+
+        // Spawn ball at paddle height
+        app.world_mut().spawn((
+            Transform::from_xyz(ball_x, PADDLE_Y, 1.0),
+            Ball {
+                velocity: Vec2::new(-100.0, BALL_SPEED),
+            },
+        ));
+
+        // Spawn paddle (overlapping ball)
+        app.world_mut().spawn((
+            Transform::from_xyz(paddle_x, PADDLE_Y, 0.0),
+            Paddle,
+            Collider,
+        ));
+
+        // Spawn left wall
+        app.world_mut()
+            .spawn((Transform::from_xyz(left_wall_x, 0.0, 0.0), Wall, Collider));
+
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Transform, &Ball)>();
+        let (transform, ball) = q.iter(app.world()).next().unwrap();
+
+        // Ball should be clamped to stay within bounds
+        assert!(
+            transform.translation.x >= min_valid_ball_x,
+            "Ball should stay within bounds (x >= {}), got x={}",
+            min_valid_ball_x,
+            transform.translation.x
+        );
+
+        // Velocity should be pointing right (away from wall)
+        assert!(
+            ball.velocity.x > 0.0,
+            "Ball velocity.x should be positive (moving right), got {}",
+            ball.velocity.x
+        );
+    }
+
+    // --- clamp_ball_to_bounds ---
+
+    #[test]
+    fn ball_clamped_when_past_right_wall() {
+        let mut app = test_app();
+        app.add_systems(Update, clamp_ball_to_bounds);
+
+        let max_x = WINDOW_WIDTH / 2.0 - WALL_THICKNESS - BALL_SIZE / 2.0;
+
+        // Ball outside right bound, moving right
+        app.world_mut().spawn((
+            Transform::from_xyz(max_x + 50.0, 0.0, 1.0),
+            Ball {
+                velocity: Vec2::new(100.0, BALL_SPEED),
+            },
+        ));
+
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Transform, &Ball)>();
+        let (transform, ball) = q.iter(app.world()).next().unwrap();
+
+        assert!(
+            (transform.translation.x - max_x).abs() < 0.01,
+            "Ball should be clamped to right bound, got x={}",
+            transform.translation.x
+        );
+        assert!(
+            ball.velocity.x < 0.0,
+            "Ball velocity.x should be negative (moving left), got {}",
+            ball.velocity.x
+        );
+    }
+
+    #[test]
+    fn ball_velocity_preserved_when_already_moving_inward() {
+        let mut app = test_app();
+        app.add_systems(Update, clamp_ball_to_bounds);
+
+        let min_x = -WINDOW_WIDTH / 2.0 + WALL_THICKNESS + BALL_SIZE / 2.0;
+
+        // Ball outside left bound, but already moving right (inward)
+        app.world_mut().spawn((
+            Transform::from_xyz(min_x - 50.0, 0.0, 1.0),
+            Ball {
+                velocity: Vec2::new(100.0, BALL_SPEED), // positive = moving right
+            },
+        ));
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&Ball>();
+        let ball = q.iter(app.world()).next().unwrap();
+
+        assert!(
+            ball.velocity.x > 0.0,
+            "Ball velocity.x should stay positive (not double-flip), got {}",
+            ball.velocity.x
+        );
+    }
+
+    #[test]
+    fn ball_within_bounds_unchanged() {
+        let mut app = test_app();
+        app.add_systems(Update, clamp_ball_to_bounds);
+
+        // Ball in center, moving normally
+        app.world_mut().spawn((
+            Transform::from_xyz(0.0, 0.0, 1.0),
+            Ball {
+                velocity: Vec2::new(-150.0, BALL_SPEED),
+            },
+        ));
+
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Transform, &Ball)>();
+        let (transform, ball) = q.iter(app.world()).next().unwrap();
+
+        assert!(
+            transform.translation.x.abs() < 0.01,
+            "Ball position should be unchanged, got x={}",
+            transform.translation.x
+        );
+        assert!(
+            (ball.velocity.x - (-150.0)).abs() < 0.01,
+            "Ball velocity should be unchanged, got {}",
+            ball.velocity.x
+        );
     }
 }

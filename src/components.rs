@@ -7,6 +7,7 @@ pub enum GameState {
     #[default]
     Menu,
     Playing,
+    Paused,
     GameOver,
     Victory,
 }
@@ -40,6 +41,28 @@ pub struct LivesUi;
 
 #[derive(Component)]
 pub struct OverlayUi;
+
+#[derive(Component)]
+pub struct ResumeButton;
+
+#[derive(Component)]
+pub struct QuitButton;
+
+// --- Pause Menu ---
+
+/// Tracks which button is currently selected in the pause menu (for keyboard navigation).
+#[derive(Resource, Default)]
+pub struct PauseMenuState {
+    pub selected: usize, // 0 = Resume, 1 = Quit
+}
+
+/// Number of items in the pause menu.
+pub const PAUSE_MENU_ITEMS: usize = 2;
+
+// Pause menu button colors
+pub const BUTTON_NORMAL: Color = Color::srgb(0.15, 0.15, 0.15);
+pub const BUTTON_HOVERED: Color = Color::srgb(0.35, 0.35, 0.35);
+pub const BUTTON_PRESSED: Color = Color::srgb(0.7, 0.6, 0.1);
 
 // --- Resources ---
 

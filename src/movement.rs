@@ -6,6 +6,7 @@ use crate::components::*;
 pub fn move_paddle(
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    paddle_state: Res<PaddleState>,
     mut query: Query<&mut Transform, With<Paddle>>,
 ) {
     let Ok(mut transform) = query.single_mut() else {
@@ -24,15 +25,20 @@ pub fn move_paddle(
     transform.translation.x += direction * PADDLE_SPEED * time.delta_secs();
 
     // Clamp within window bounds
-    let max_x = WINDOW_WIDTH / 2.0 - PADDLE_WIDTH / 2.0;
+    let max_x = WINDOW_WIDTH / 2.0 - paddle_state.current_width / 2.0;
     transform.translation.x = transform.translation.x.clamp(-max_x, max_x);
 }
 
-/// Moves the ball by its velocity each frame.
-pub fn move_ball(time: Res<Time>, mut query: Query<(&mut Transform, &Ball)>) {
+/// Moves the ball by its velocity each frame, applying speed modifier.
+pub fn move_ball(
+    time: Res<Time>,
+    speed_modifier: Res<BallSpeedModifier>,
+    mut query: Query<(&mut Transform, &Ball)>,
+) {
+    let multiplier = speed_modifier.effective_multiplier();
     for (mut transform, ball) in &mut query {
-        transform.translation.x += ball.velocity.x * time.delta_secs();
-        transform.translation.y += ball.velocity.y * time.delta_secs();
+        transform.translation.x += ball.velocity.x * multiplier * time.delta_secs();
+        transform.translation.y += ball.velocity.y * multiplier * time.delta_secs();
     }
 }
 
@@ -43,6 +49,8 @@ mod tests {
     fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
+        app.init_resource::<BallSpeedModifier>();
+        app.init_resource::<PaddleState>();
         app
     }
 

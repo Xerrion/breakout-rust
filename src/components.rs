@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::time::Timer;
 
 // --- Game State ---
 
@@ -21,6 +22,9 @@ pub struct Paddle;
 pub struct Ball {
     pub velocity: Vec2,
 }
+
+#[derive(Component)]
+pub struct PrimaryBall;
 
 #[derive(Component)]
 pub struct Brick;
@@ -47,6 +51,20 @@ pub struct ResumeButton;
 
 #[derive(Component)]
 pub struct QuitButton;
+
+// --- Power-Up Components ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerUpType {
+    MultiBall,
+    WiderPaddle,
+    SlowBall,
+}
+
+#[derive(Component)]
+pub struct PowerUp {
+    pub power_type: PowerUpType,
+}
 
 // --- Pause Menu ---
 
@@ -80,6 +98,39 @@ impl Default for Lives {
     fn default() -> Self {
         Self { count: 3 }
     }
+}
+
+#[derive(Resource)]
+pub struct PaddleState {
+    pub current_width: f32,
+}
+
+impl Default for PaddleState {
+    fn default() -> Self {
+        Self {
+            current_width: PADDLE_WIDTH,
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct BallSpeedModifier {
+    pub multiplier: f32,
+}
+
+impl BallSpeedModifier {
+    pub fn effective_multiplier(&self) -> f32 {
+        if self.multiplier == 0.0 {
+            1.0
+        } else {
+            self.multiplier
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct ActivePowerUps {
+    pub timers: Vec<(PowerUpType, Timer)>,
 }
 
 // --- Shared Constants ---
@@ -118,6 +169,17 @@ pub const POINTS_PER_BRICK: u32 = 10;
 // Walls
 pub const WALL_THICKNESS: f32 = 10.0;
 pub const WALL_COLOR: Color = Color::srgb(0.3, 0.3, 0.3);
+
+// Power-Ups
+pub const POWERUP_SIZE: f32 = 24.0;
+pub const POWERUP_FALL_SPEED: f32 = 150.0;
+pub const POWERUP_SPAWN_CHANCE: f32 = 0.2;
+pub const POWERUP_DURATION: f32 = 10.0;
+pub const WIDER_PADDLE_MULTIPLIER: f32 = 1.5;
+pub const SLOW_BALL_MULTIPLIER: f32 = 0.7;
+pub const POWERUP_MULTIBALL_COLOR: Color = Color::srgb(0.3, 0.5, 1.0);
+pub const POWERUP_WIDERPADDLE_COLOR: Color = Color::srgb(0.3, 1.0, 0.3);
+pub const POWERUP_SLOWBALL_COLOR: Color = Color::srgb(1.0, 1.0, 0.3);
 
 // --- Collision Helper ---
 

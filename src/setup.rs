@@ -33,6 +33,7 @@ pub fn spawn_game(mut commands: Commands) {
         Ball {
             velocity: Vec2::new(BALL_SPEED * 0.7, BALL_SPEED),
         },
+        PrimaryBall,
     ));
 
     // Bricks
@@ -173,20 +174,42 @@ pub fn despawn_overlay(mut commands: Commands, query: Query<Entity, With<Overlay
     }
 }
 
-/// Resets ball and paddle positions when entering Playing state.
+pub fn update_paddle_sprite(
+    paddle_state: Res<PaddleState>,
+    mut paddle_query: Query<&mut Sprite, With<Paddle>>,
+) {
+    if !paddle_state.is_changed() {
+        return;
+    }
+
+    let Ok(mut sprite) = paddle_query.single_mut() else {
+        return;
+    };
+
+    sprite.custom_size = Some(Vec2::new(paddle_state.current_width, PADDLE_HEIGHT));
+}
+
 pub fn reset_ball_and_paddle(
+    mut commands: Commands,
     mut paddle_query: Query<&mut Transform, With<Paddle>>,
-    mut ball_query: Query<(&mut Transform, &mut Ball), Without<Paddle>>,
+    ball_query: Query<(Entity, Option<&PrimaryBall>), With<Ball>>,
+    mut paddle_state: ResMut<PaddleState>,
+    mut ball_speed_modifier: ResMut<BallSpeedModifier>,
+    mut active_powerups: ResMut<ActivePowerUps>,
 ) {
     if let Ok(mut paddle_transform) = paddle_query.single_mut() {
         paddle_transform.translation.x = 0.0;
     }
 
-    if let Ok((mut ball_transform, mut ball)) = ball_query.single_mut() {
-        ball_transform.translation.x = 0.0;
-        ball_transform.translation.y = PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
-        ball.velocity = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
+    for (entity, primary) in &ball_query {
+        if primary.is_none() {
+            commands.entity(entity).despawn();
+        }
     }
+
+    paddle_state.current_width = PADDLE_WIDTH;
+    ball_speed_modifier.multiplier = 0.0;
+    active_powerups.timers.clear();
 }
 
 #[cfg(test)]
@@ -296,20 +319,22 @@ mod tests {
     // --- reset_ball_and_paddle ---
 
     #[test]
-    fn reset_ball_and_paddle_resets_positions() {
+    fn reset_ball_and_paddle_resets_paddle_position() {
         let mut app = test_app();
+        app.init_resource::<PaddleState>();
+        app.init_resource::<BallSpeedModifier>();
+        app.init_resource::<ActivePowerUps>();
         app.add_systems(Update, reset_ball_and_paddle);
 
-        // Spawn paddle at off-center position
         app.world_mut()
             .spawn((Transform::from_xyz(200.0, PADDLE_Y, 0.0), Paddle));
 
-        // Spawn ball at off-center position with different velocity
         app.world_mut().spawn((
             Transform::from_xyz(100.0, 50.0, 1.0),
             Ball {
                 velocity: Vec2::new(-100.0, -200.0),
             },
+            PrimaryBall,
         ));
 
         app.update();
@@ -317,16 +342,84 @@ mod tests {
         let mut q = app.world_mut().query::<(&Transform, &Paddle)>();
         let paddle_x = q.iter(app.world()).next().unwrap().0.translation.x;
         assert!((paddle_x).abs() < 0.01, "Paddle x should reset to 0");
+    }
 
-        let mut q = app.world_mut().query::<(&Transform, &Ball)>();
-        let (ball_transform, ball) = q.iter(app.world()).next().unwrap();
+    #[test]
+    fn reset_ball_and_paddle_despawns_extra_balls() {
+        let mut app = test_app();
+        app.init_resource::<PaddleState>();
+        app.init_resource::<BallSpeedModifier>();
+        app.init_resource::<ActivePowerUps>();
+        app.add_systems(Update, reset_ball_and_paddle);
+
+        app.world_mut()
+            .spawn((Transform::from_xyz(0.0, PADDLE_Y, 0.0), Paddle));
+
+        app.world_mut().spawn((
+            Transform::from_xyz(0.0, 50.0, 1.0),
+            Ball {
+                velocity: Vec2::new(100.0, 200.0),
+            },
+            PrimaryBall,
+        ));
+
+        app.world_mut().spawn((
+            Transform::from_xyz(50.0, 50.0, 1.0),
+            Ball {
+                velocity: Vec2::new(100.0, 200.0),
+            },
+        ));
+
+        app.world_mut().spawn((
+            Transform::from_xyz(-50.0, 50.0, 1.0),
+            Ball {
+                velocity: Vec2::new(100.0, 200.0),
+            },
+        ));
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&Ball>();
+        let ball_count = q.iter(app.world()).count();
+        assert_eq!(ball_count, 1, "Extra balls should be despawned");
+    }
+
+    #[test]
+    fn reset_ball_and_paddle_resets_powerup_state() {
+        let mut app = test_app();
+        app.init_resource::<PaddleState>();
+        app.init_resource::<BallSpeedModifier>();
+        app.init_resource::<ActivePowerUps>();
+        app.add_systems(Update, reset_ball_and_paddle);
+
+        app.world_mut().resource_mut::<PaddleState>().current_width = PADDLE_WIDTH * 1.5;
+        app.world_mut()
+            .resource_mut::<BallSpeedModifier>()
+            .multiplier = 0.7;
+
+        app.world_mut()
+            .spawn((Transform::from_xyz(0.0, PADDLE_Y, 0.0), Paddle));
+
+        app.world_mut().spawn((
+            Transform::from_xyz(0.0, 50.0, 1.0),
+            Ball {
+                velocity: Vec2::new(100.0, 200.0),
+            },
+            PrimaryBall,
+        ));
+
+        app.update();
+
+        let paddle_state = app.world().resource::<PaddleState>();
         assert!(
-            (ball_transform.translation.x).abs() < 0.01,
-            "Ball x should reset to 0"
+            (paddle_state.current_width - PADDLE_WIDTH).abs() < 0.01,
+            "Paddle width should reset to default"
         );
+
+        let ball_speed_modifier = app.world().resource::<BallSpeedModifier>();
         assert!(
-            ball.velocity.y > 0.0,
-            "Ball should be moving upward after reset"
+            (ball_speed_modifier.multiplier).abs() < 0.01,
+            "Ball speed modifier should reset to 0"
         );
     }
 }

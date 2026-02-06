@@ -1,95 +1,98 @@
 use bevy::prelude::*;
 
 use crate::components::*;
+use crate::powerups::{random_powerup_type, spawn_powerup};
 
 /// Ball vs walls and paddle — reflect velocity on collision.
 #[allow(clippy::type_complexity)]
 pub fn ball_collision_walls_and_paddle(
+    paddle_state: Res<PaddleState>,
     mut ball_query: Query<(&mut Transform, &mut Ball)>,
     collider_query: Query<
         (&Transform, Option<&Paddle>, Option<&Wall>),
         (With<Collider>, Without<Ball>, Without<Brick>),
     >,
 ) {
-    let Ok((mut ball_transform, mut ball)) = ball_query.single_mut() else {
-        return;
-    };
-
-    let ball_pos = ball_transform.translation.truncate();
     let ball_size = Vec2::splat(BALL_SIZE);
 
-    for (collider_transform, paddle, wall) in &collider_query {
-        let target_pos = collider_transform.translation.truncate();
-        let target_size = collider_transform.scale.truncate()
-            * if paddle.is_some() {
-                Vec2::new(PADDLE_WIDTH, PADDLE_HEIGHT)
-            } else if wall.is_some() {
-                // Walls use custom_size in the sprite, but transform.scale is 1.0
-                // We need to figure out the wall size from its sprite custom_size.
-                // Since we can't easily query Sprite here, use the wall dimensions directly.
-                let diff = (target_pos - Vec2::ZERO).abs();
-                if diff.x > diff.y {
-                    // Left or right wall
-                    Vec2::new(WALL_THICKNESS, WINDOW_HEIGHT + WALL_THICKNESS * 2.0)
+    for (mut ball_transform, mut ball) in &mut ball_query {
+        let ball_pos = ball_transform.translation.truncate();
+
+        for (collider_transform, paddle, wall) in &collider_query {
+            let target_pos = collider_transform.translation.truncate();
+            let target_size = collider_transform.scale.truncate()
+                * if paddle.is_some() {
+                    Vec2::new(paddle_state.current_width, PADDLE_HEIGHT)
+                } else if wall.is_some() {
+                    // Walls use custom_size in the sprite, but transform.scale is 1.0
+                    // We need to figure out the wall size from its sprite custom_size.
+                    // Since we can't easily query Sprite here, use the wall dimensions directly.
+                    let diff = (target_pos - Vec2::ZERO).abs();
+                    if diff.x > diff.y {
+                        // Left or right wall
+                        Vec2::new(WALL_THICKNESS, WINDOW_HEIGHT + WALL_THICKNESS * 2.0)
+                    } else {
+                        // Top wall
+                        Vec2::new(WINDOW_WIDTH + WALL_THICKNESS * 2.0, WALL_THICKNESS)
+                    }
                 } else {
-                    // Top wall
-                    Vec2::new(WINDOW_WIDTH + WALL_THICKNESS * 2.0, WALL_THICKNESS)
-                }
-            } else {
-                continue;
-            };
+                    continue;
+                };
 
-        if let Some(collision) = check_aabb_collision(ball_pos, ball_size, target_pos, target_size)
-        {
-            match collision {
-                CollisionSide::Top | CollisionSide::Bottom => {
-                    ball.velocity.y = -ball.velocity.y;
+            if let Some(collision) =
+                check_aabb_collision(ball_pos, ball_size, target_pos, target_size)
+            {
+                match collision {
+                    CollisionSide::Top | CollisionSide::Bottom => {
+                        ball.velocity.y = -ball.velocity.y;
+                    }
+                    CollisionSide::Left | CollisionSide::Right => {
+                        ball.velocity.x = -ball.velocity.x;
+                    }
                 }
-                CollisionSide::Left | CollisionSide::Right => {
-                    ball.velocity.x = -ball.velocity.x;
+
+                // If hitting paddle, adjust angle based on where ball hit
+                if paddle.is_some() {
+                    let hit_offset =
+                        (ball_pos.x - target_pos.x) / (paddle_state.current_width / 2.0);
+                    let angle = hit_offset * std::f32::consts::FRAC_PI_4; // max ±45° offset
+                    let speed = ball.velocity.length();
+                    ball.velocity = Vec2::new(
+                        speed * angle.sin() + ball.velocity.x * 0.3,
+                        ball.velocity.y.abs(), // Always bounce up
+                    )
+                    .normalize()
+                        * speed;
                 }
+
+                // Push ball out of collision to avoid sticking
+                match collision {
+                    CollisionSide::Top => {
+                        ball_transform.translation.y =
+                            target_pos.y + target_size.y / 2.0 + BALL_SIZE / 2.0 + 0.1;
+                    }
+                    CollisionSide::Bottom => {
+                        ball_transform.translation.y =
+                            target_pos.y - target_size.y / 2.0 - BALL_SIZE / 2.0 - 0.1;
+                    }
+                    CollisionSide::Left => {
+                        ball_transform.translation.x =
+                            target_pos.x - target_size.x / 2.0 - BALL_SIZE / 2.0 - 0.1;
+                    }
+                    CollisionSide::Right => {
+                        ball_transform.translation.x =
+                            target_pos.x + target_size.x / 2.0 + BALL_SIZE / 2.0 + 0.1;
+                    }
+                }
+
+                // Only handle one collision per ball per frame
+                break;
             }
-
-            // If hitting paddle, adjust angle based on where ball hit
-            if paddle.is_some() {
-                let hit_offset = (ball_pos.x - target_pos.x) / (PADDLE_WIDTH / 2.0);
-                let angle = hit_offset * std::f32::consts::FRAC_PI_4; // max ±45° offset
-                let speed = ball.velocity.length();
-                ball.velocity = Vec2::new(
-                    speed * angle.sin() + ball.velocity.x * 0.3,
-                    ball.velocity.y.abs(), // Always bounce up
-                )
-                .normalize()
-                    * speed;
-            }
-
-            // Push ball out of collision to avoid sticking
-            match collision {
-                CollisionSide::Top => {
-                    ball_transform.translation.y =
-                        target_pos.y + target_size.y / 2.0 + BALL_SIZE / 2.0 + 0.1;
-                }
-                CollisionSide::Bottom => {
-                    ball_transform.translation.y =
-                        target_pos.y - target_size.y / 2.0 - BALL_SIZE / 2.0 - 0.1;
-                }
-                CollisionSide::Left => {
-                    ball_transform.translation.x =
-                        target_pos.x - target_size.x / 2.0 - BALL_SIZE / 2.0 - 0.1;
-                }
-                CollisionSide::Right => {
-                    ball_transform.translation.x =
-                        target_pos.x + target_size.x / 2.0 + BALL_SIZE / 2.0 + 0.1;
-                }
-            }
-
-            // Only handle one collision per frame
-            break;
         }
     }
 }
 
-/// Ball vs bricks — destroy brick, reflect, and add score.
+/// Ball vs bricks — destroy brick, reflect, add score, and maybe spawn power-up.
 #[allow(clippy::type_complexity)]
 pub fn ball_collision_bricks(
     mut commands: Commands,
@@ -97,96 +100,128 @@ pub fn ball_collision_bricks(
     brick_query: Query<(Entity, &Transform), (With<Brick>, Without<Ball>)>,
     mut scoreboard: ResMut<Scoreboard>,
 ) {
-    let Ok((mut ball_transform, mut ball)) = ball_query.single_mut() else {
-        return;
-    };
-
-    let ball_pos = ball_transform.translation.truncate();
     let ball_size = Vec2::splat(BALL_SIZE);
     let brick_size = Vec2::new(BRICK_WIDTH, BRICK_HEIGHT);
 
-    for (brick_entity, brick_transform) in &brick_query {
-        let brick_pos = brick_transform.translation.truncate();
+    for (mut ball_transform, mut ball) in &mut ball_query {
+        let ball_pos = ball_transform.translation.truncate();
 
-        if let Some(collision) = check_aabb_collision(ball_pos, ball_size, brick_pos, brick_size) {
-            commands.entity(brick_entity).despawn();
-            scoreboard.score += POINTS_PER_BRICK;
+        for (brick_entity, brick_transform) in &brick_query {
+            let brick_pos = brick_transform.translation.truncate();
 
-            match collision {
-                CollisionSide::Top | CollisionSide::Bottom => {
-                    ball.velocity.y = -ball.velocity.y;
+            if let Some(collision) =
+                check_aabb_collision(ball_pos, ball_size, brick_pos, brick_size)
+            {
+                let brick_z = brick_transform.translation.z;
+                commands.entity(brick_entity).despawn();
+                scoreboard.score += POINTS_PER_BRICK;
+
+                if rand::random::<f32>() < POWERUP_SPAWN_CHANCE {
+                    let power_type = random_powerup_type();
+                    spawn_powerup(&mut commands, brick_pos.extend(brick_z), power_type);
                 }
-                CollisionSide::Left | CollisionSide::Right => {
-                    ball.velocity.x = -ball.velocity.x;
+
+                match collision {
+                    CollisionSide::Top | CollisionSide::Bottom => {
+                        ball.velocity.y = -ball.velocity.y;
+                    }
+                    CollisionSide::Left | CollisionSide::Right => {
+                        ball.velocity.x = -ball.velocity.x;
+                    }
                 }
+
+                match collision {
+                    CollisionSide::Top => {
+                        ball_transform.translation.y =
+                            brick_pos.y + brick_size.y / 2.0 + BALL_SIZE / 2.0 + 0.1;
+                    }
+                    CollisionSide::Bottom => {
+                        ball_transform.translation.y =
+                            brick_pos.y - brick_size.y / 2.0 - BALL_SIZE / 2.0 - 0.1;
+                    }
+                    CollisionSide::Left => {
+                        ball_transform.translation.x =
+                            brick_pos.x - brick_size.x / 2.0 - BALL_SIZE / 2.0 - 0.1;
+                    }
+                    CollisionSide::Right => {
+                        ball_transform.translation.x =
+                            brick_pos.x + brick_size.x / 2.0 + BALL_SIZE / 2.0 + 0.1;
+                    }
+                }
+
+                break;
             }
-
-            // Push ball out
-            match collision {
-                CollisionSide::Top => {
-                    ball_transform.translation.y =
-                        brick_pos.y + brick_size.y / 2.0 + BALL_SIZE / 2.0 + 0.1;
-                }
-                CollisionSide::Bottom => {
-                    ball_transform.translation.y =
-                        brick_pos.y - brick_size.y / 2.0 - BALL_SIZE / 2.0 - 0.1;
-                }
-                CollisionSide::Left => {
-                    ball_transform.translation.x =
-                        brick_pos.x - brick_size.x / 2.0 - BALL_SIZE / 2.0 - 0.1;
-                }
-                CollisionSide::Right => {
-                    ball_transform.translation.x =
-                        brick_pos.x + brick_size.x / 2.0 + BALL_SIZE / 2.0 + 0.1;
-                }
-            }
-
-            // Only handle one brick collision per frame
-            break;
         }
     }
 }
 
-/// Detects when the ball falls below the screen (death zone).
+/// Detects when balls fall below the screen (death zone).
+/// Extra balls are despawned; the primary ball resets and loses a life.
 pub fn ball_death_zone(
-    mut ball_query: Query<(&mut Transform, &mut Ball)>,
+    mut commands: Commands,
+    mut ball_query: Query<(Entity, &mut Transform, &mut Ball, Option<&PrimaryBall>)>,
     mut lives: ResMut<Lives>,
 ) {
-    let Ok((mut ball_transform, mut ball)) = ball_query.single_mut() else {
-        return;
-    };
-
     let death_y = -WINDOW_HEIGHT / 2.0 - BALL_SIZE;
+    let mut entities_to_despawn = Vec::new();
+    let mut reset_primary = false;
 
-    if ball_transform.translation.y < death_y {
-        lives.count = lives.count.saturating_sub(1);
+    for (entity, transform, _, primary) in &ball_query {
+        if transform.translation.y < death_y {
+            if primary.is_some() {
+                reset_primary = true;
+            } else {
+                entities_to_despawn.push(entity);
+            }
+        }
+    }
 
-        // Reset ball position
-        ball_transform.translation.x = 0.0;
-        ball_transform.translation.y = PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
-        ball.velocity = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
+    for entity in entities_to_despawn {
+        commands.entity(entity).despawn();
+    }
+
+    if reset_primary {
+        let ball_count = ball_query.iter().count() - 1;
+
+        if ball_count == 0 {
+            lives.count = lives.count.saturating_sub(1);
+
+            for (_, mut transform, mut ball, primary) in &mut ball_query {
+                if primary.is_some() {
+                    transform.translation.x = 0.0;
+                    transform.translation.y =
+                        PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
+                    ball.velocity = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
+                    break;
+                }
+            }
+        } else {
+            for (entity, _, _, primary) in &ball_query {
+                if primary.is_some() {
+                    commands.entity(entity).despawn();
+                    break;
+                }
+            }
+        }
     }
 }
 
-/// Clamps ball position to stay within playable bounds (safety net).
+/// Clamps ball positions to stay within playable bounds (safety net).
 pub fn clamp_ball_to_bounds(mut ball_query: Query<(&mut Transform, &mut Ball)>) {
-    let Ok((mut transform, mut ball)) = ball_query.single_mut() else {
-        return;
-    };
-
     let min_x = -WINDOW_WIDTH / 2.0 + WALL_THICKNESS + BALL_SIZE / 2.0;
     let max_x = WINDOW_WIDTH / 2.0 - WALL_THICKNESS - BALL_SIZE / 2.0;
 
-    // Clamp X and reflect velocity if ball was outside bounds
-    if transform.translation.x < min_x {
-        transform.translation.x = min_x;
-        if ball.velocity.x < 0.0 {
-            ball.velocity.x = -ball.velocity.x;
-        }
-    } else if transform.translation.x > max_x {
-        transform.translation.x = max_x;
-        if ball.velocity.x > 0.0 {
-            ball.velocity.x = -ball.velocity.x;
+    for (mut transform, mut ball) in &mut ball_query {
+        if transform.translation.x < min_x {
+            transform.translation.x = min_x;
+            if ball.velocity.x < 0.0 {
+                ball.velocity.x = -ball.velocity.x;
+            }
+        } else if transform.translation.x > max_x {
+            transform.translation.x = max_x;
+            if ball.velocity.x > 0.0 {
+                ball.velocity.x = -ball.velocity.x;
+            }
         }
     }
 }
@@ -200,6 +235,7 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.init_resource::<Scoreboard>();
         app.init_resource::<Lives>();
+        app.init_resource::<PaddleState>();
         app
     }
 
@@ -387,6 +423,7 @@ mod tests {
             Ball {
                 velocity: Vec2::new(100.0, -BALL_SPEED),
             },
+            PrimaryBall,
         ));
 
         app.update();
@@ -394,7 +431,6 @@ mod tests {
         let lives = app.world().resource::<Lives>();
         assert_eq!(lives.count, 2, "Should lose one life (3 -> 2)");
 
-        // Ball should reset to center
         let mut q = app.world_mut().query::<(&Transform, &Ball)>();
         let ball_transform = q.iter(app.world()).next().unwrap().0;
         assert!(
@@ -415,6 +451,7 @@ mod tests {
             Ball {
                 velocity: Vec2::new(0.0, -BALL_SPEED),
             },
+            PrimaryBall,
         ));
 
         app.update();
@@ -428,12 +465,12 @@ mod tests {
         let mut app = test_app();
         app.add_systems(Update, ball_death_zone);
 
-        // Ball well above death zone
         app.world_mut().spawn((
             Transform::from_xyz(0.0, 0.0, 1.0),
             Ball {
                 velocity: Vec2::new(100.0, BALL_SPEED),
             },
+            PrimaryBall,
         ));
 
         app.update();

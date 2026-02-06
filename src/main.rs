@@ -3,6 +3,7 @@ mod collision;
 mod components;
 mod game;
 mod movement;
+mod powerups;
 mod setup;
 
 use bevy::prelude::*;
@@ -26,6 +27,9 @@ fn main() {
         .init_resource::<Scoreboard>()
         .init_resource::<Lives>()
         .init_resource::<PauseMenuState>()
+        .init_resource::<PaddleState>()
+        .init_resource::<BallSpeedModifier>()
+        .init_resource::<ActivePowerUps>()
         // Startup systems
         .add_systems(
             Startup,
@@ -42,10 +46,15 @@ fn main() {
             (
                 movement::move_paddle,
                 movement::move_ball,
+                powerups::move_powerups,
                 collision::ball_collision_walls_and_paddle,
                 collision::ball_collision_bricks,
                 collision::clamp_ball_to_bounds,
                 collision::ball_death_zone,
+                powerups::powerup_paddle_collision,
+                powerups::tick_powerup_timers,
+                powerups::despawn_powerups_out_of_bounds,
+                setup::update_paddle_sprite,
                 game::update_scoreboard_ui,
                 game::update_lives_ui,
                 game::check_game_over,

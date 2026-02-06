@@ -105,27 +105,32 @@ pub fn restart_input(
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     mut lives: ResMut<Lives>,
+    mut paddle_state: ResMut<PaddleState>,
+    mut ball_speed_modifier: ResMut<BallSpeedModifier>,
+    mut active_powerups: ResMut<ActivePowerUps>,
     brick_query: Query<Entity, With<Brick>>,
     ball_query: Query<Entity, With<Ball>>,
     paddle_query: Query<Entity, With<Paddle>>,
     wall_query: Query<Entity, With<Wall>>,
+    powerup_query: Query<Entity, With<PowerUp>>,
 ) {
     if keyboard.just_pressed(KeyCode::Space) {
-        // Reset resources
         scoreboard.score = 0;
         lives.count = 3;
+        paddle_state.current_width = PADDLE_WIDTH;
+        ball_speed_modifier.multiplier = 0.0;
+        active_powerups.timers.clear();
 
-        // Despawn all game entities
         for entity in brick_query
             .iter()
             .chain(ball_query.iter())
             .chain(paddle_query.iter())
             .chain(wall_query.iter())
+            .chain(powerup_query.iter())
         {
             commands.entity(entity).despawn();
         }
 
-        // Re-spawn the game
         next_state.set(GameState::Menu);
     }
 }

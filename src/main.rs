@@ -25,6 +25,7 @@ fn main() {
         // Resources
         .init_resource::<Scoreboard>()
         .init_resource::<Lives>()
+        .init_resource::<PauseMenuState>()
         // Startup systems
         .add_systems(
             Startup,
@@ -56,6 +57,15 @@ fn main() {
         // Paused state
         .add_systems(OnEnter(GameState::Paused), game::spawn_pause_overlay)
         .add_systems(OnExit(GameState::Paused), setup::despawn_overlay)
+        .add_systems(
+            Update,
+            (
+                game::pause_menu_mouse_interaction,
+                game::pause_menu_keyboard_navigation,
+                game::update_pause_menu_visuals,
+            )
+                .run_if(in_state(GameState::Paused)),
+        )
         .add_systems(
             Update,
             game::pause_input.run_if(in_state(GameState::Playing).or(in_state(GameState::Paused))),

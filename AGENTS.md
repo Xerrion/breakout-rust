@@ -1,87 +1,51 @@
-# AGENTS.md — Coding Agent Guidelines for breakout-rust
+# AGENTS.md - Coding Agent Guidelines for breakout-rust
 
 ## Project Overview
 
 Breakout game built with Rust and Bevy 0.18. Single-crate binary, no workspace.
-Rust edition 2024. Single dependency: `bevy`.
+Rust edition 2024. Single dependency: `bevy`. No feature flags, no build scripts.
 
 ## Build / Run / Test Commands
 
 ```sh
-# Build (dev)
-cargo build
-
-# Build (release, optimized)
-cargo build --release
-
-# Run the game
-cargo run
-
-# Check without building artifacts (faster feedback)
-cargo check
-
-# Lint with clippy
-cargo clippy -- -D warnings
-
-# Format code
-cargo fmt
-
-# Check formatting without modifying
-cargo fmt -- --check
-
-# Run all tests
-cargo test
-
-# Run a single test by name
-cargo test <test_name>
-
-# Run tests in a specific module
-cargo test --bin breakout-rust <module>::tests::<test_name>
-
-# Add a dependency
-cargo add <crate_name>
+cargo build                  # Dev build
+cargo build --release        # Release build
+cargo run                    # Run the game
+cargo check                  # Type-check only (fastest feedback)
+cargo clippy -- -D warnings  # Lint (treat warnings as errors)
+cargo fmt                    # Format code
+cargo fmt -- --check         # Check formatting without modifying
+cargo test                   # Run all tests (51 tests across 5 modules)
+cargo test <test_name>       # Run a single test by name
+cargo test --bin breakout-rust <module>::tests::<test_name>  # Single test in module
+cargo add <crate_name>       # Add dependency (never edit Cargo.toml manually)
 ```
-
-No custom profiles, no feature flags, no build scripts.
-`Cargo.lock` is committed (binary crate).
 
 ## Project Structure
 
 ```
 src/
-  main.rs           # App entry, module declarations, Bevy App builder
+  main.rs           # App entry, module declarations (alphabetical), Bevy App builder
   background.rs     # Self-contained BackgroundPlugin (shader material + systems)
-  collision.rs      # Collision detection systems
-  components.rs     # Components, resources, GameState, constants, shared helpers
-  game.rs           # Game logic: UI updates, state transitions, restart
-  movement.rs       # Movement systems: paddle input, ball physics
+  collision.rs      # Collision detection systems (AABB-based)
+  components.rs     # All shared types, resources, constants, collision helper
+  game.rs           # UI updates, state transitions, restart, pause menu logic
+  movement.rs       # Paddle input, ball physics
   setup.rs          # Spawn/despawn systems: camera, entities, UI, overlays
 assets/
   shaders/
     background.wgsl # WGSL fragment shader for animated background
-docs/
-  doc/
-    breakout_rust/   # Generated rustdoc API documentation
 ```
 
-Flat module structure — one file per module, no nested `mod.rs` directories.
-Modules declared in `main.rs` in **alphabetical order**.
-
-## Documentation
-
-Generated API documentation (`cargo doc` output) is available in `docs/`.
-Browse project-specific docs at `docs/doc/breakout_rust/`. To regenerate:
-
-```sh
-CARGO_TARGET_DIR=docs cargo doc --no-deps
-```
+Flat module structure - one file per module, no nested `mod.rs` directories.
 
 ## Code Style
 
-### Formatting
+### Formatting & Linting
 
-Default `rustfmt` — no `rustfmt.toml`. 4-space indent, trailing commas in
-multi-line constructs. No `clippy.toml` either — default clippy rules apply.
+Default `rustfmt` (no `rustfmt.toml`) and default `clippy` (no `clippy.toml`).
+Use `#[allow(clippy::type_complexity)]` and `#[allow(clippy::too_many_arguments)]`
+on Bevy systems with complex query types - never globally.
 
 ### Naming Conventions
 
@@ -96,10 +60,7 @@ multi-line constructs. No `clippy.toml` either — default clippy rules apply.
 
 ### Imports
 
-Two groups, separated by a blank line:
-
-1. External crate imports (`bevy::*`)
-2. Crate-internal imports (`use crate::components::*`)
+Two groups separated by a blank line: external first, then crate-internal.
 
 ```rust
 use bevy::prelude::*;
@@ -108,84 +69,92 @@ use crate::components::*;
 ```
 
 - **Glob import** `bevy::prelude::*` and `crate::components::*` when many items needed.
-- **Selective imports** when only a few items needed: `use crate::components::{WINDOW_HEIGHT, WINDOW_WIDTH};`
-- Non-prelude bevy items get their own `use` lines.
-- No `use std::*` — rely on Bevy re-exports; access std items by path if needed.
+- **Selective imports** when only a few items: `use crate::components::{WINDOW_HEIGHT, WINDOW_WIDTH};`
+- Non-prelude bevy items get their own `use` lines: `use bevy::app::AppExit;`
+- No `use std::*` - access std items by full path (e.g., `std::f32::consts::FRAC_PI_4`).
+- In `main.rs` (crate root), use `use components::*` without `crate::` prefix.
 
 ### Constants
 
-- Always `pub const`, never `static`.
-- All shared constants live in `components.rs` under `// --- Shared Constants ---`.
-- Grouped by domain with line-comment headers: `// Window`, `// Paddle`, etc.
-- Explicit type annotations: `pub const WINDOW_WIDTH: f32 = 900.0;`
-- Colors use `Color::srgb(r, g, b)`.
+All shared constants live in `components.rs` under `// --- Shared Constants ---`.
+Always `pub const` with explicit type annotations. Grouped by domain with
+line-comment headers (`// Window`, `// Paddle`, `// Ball`, `// Bricks`, `// Walls`).
+Colors use `Color::srgb(r, g, b)`. Never use `static`.
 
 ### Types and Derives
 
-- **Marker components**: unit structs with `#[derive(Component)]` only.
-- **Data components**: named fields, all `pub`, with `#[derive(Component)]`.
-- **Resources**: `#[derive(Resource)]` with manual `impl Default` for custom defaults.
-- **Game state enum**: `#[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]`.
+- **Marker components**: `#[derive(Component)]` only (e.g., `Paddle`, `Brick`, `Wall`).
+- **Data components**: named `pub` fields with `#[derive(Component)]` (e.g., `Ball`).
+- **Resources**: `#[derive(Resource, Default)]` when zero-default is fine;
+  manual `impl Default` only when custom defaults are needed (e.g., `Lives { count: 3 }`).
+- **Game state**: `#[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]`.
 - **Custom materials**: `#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]`.
-- **Plugins**: plain struct, manual `impl Plugin` — no derives needed.
-- Only derive what is actually used — minimal derive sets.
+- Only derive what is actually used - minimal derive sets.
 
 ### Error Handling
 
-- **No `unwrap()`, `expect()`, or `panic!()`** — never use these.
+- **No `unwrap()`, `expect()`, or `panic!()`** in production code (allowed in tests).
 - **`let Ok(...) = query.single_mut() else { return; }`** for fallible singleton queries.
 - **`if let Ok(...)`** for less critical query results.
 - **`if let Some(...)`** for Option values (collision results).
 - **`saturating_sub`** for safe decrement without underflow.
 - **Early return** with guard clauses: `if !resource.is_changed() { return; }`.
-- Systems return `()` — no `Result` return types.
+- Systems return `()` - no `Result` return types.
 
 ### Comments
 
 - **Doc comments (`///`)** on every `pub fn`: single-line, starts with verb.
-  Example: `/// Moves the paddle left/right based on keyboard input.`
 - **Section headers** in `components.rs`: `// --- Section Name ---` with triple dashes.
-- **Inline comments** above code blocks: `// Paddle`, `// Ball (starts just above paddle)`.
+- **Inline comments** above code blocks for context: `// Paddle`, `// Ball`.
 - **No module-level `//!` doc comments**.
 
-### Bevy-Specific Patterns
+## Bevy-Specific Patterns
 
-**System parameter order**:
-1. Input resources (`Res<ButtonInput<KeyCode>>`, `Res<Time>`)
-2. Mutable state (`ResMut<NextState<...>>`, `Commands`)
-3. Queries (`Query<...>`)
-
+**System parameter order**: Input resources (`Res<ButtonInput<KeyCode>>`, `Res<Time>`)
+-> Mutable state (`ResMut<NextState<...>>`, `Commands`) -> Queries (`Query<...>`).
 Exception: `Commands` comes first in spawn-focused systems.
 
 **App builder order in `main.rs`**:
 1. `add_plugins(DefaultPlugins.set(...))` then custom plugins
-2. `.init_state::<T>()` — with `// State` comment
-3. `.init_resource::<T>()` — with `// Resources` comment
-4. `.add_systems(Startup, ...)` — with `// Startup systems` comment
-5. State-grouped systems — each group labeled `// Menu state`, `// Playing state`, etc.
+2. `.init_state::<T>()` / `.init_resource::<T>()`
+3. `.add_systems(Startup, ...)` then state-grouped systems
+4. Each state group labeled with comments: `// Menu state`, `// Playing state`, etc.
 
-**Entity spawning**: tuple bundles `commands.spawn((Component, Component, ...))`.
+**System ordering**: Use `.chain()` for sequential execution within a state group.
+**Multi-state runs**: Use `.or()` - e.g., `in_state(Playing).or(in_state(Paused))`.
+**State hooks**: `OnEnter(GameState::X)` / `OnExit(GameState::X)` for spawn/despawn.
+**Entity spawning**: Tuple bundles `commands.spawn((Component, Component, ...))`.
+**Hierarchical UI**: `with_children` / `with_child` for nested UI elements.
 **Sprite sizing**: `Sprite { custom_size: Some(Vec2::new(...)), ..default() }`.
 **z-ordering**: background `-100.0`, default entities `0.0`, ball `1.0`.
-**Singleton queries**: `query.single_mut()` with `let ... else` guard.
+**First-run guard**: `Local<bool>` to skip logic on first state enter.
+**App exit**: `MessageWriter<AppExit>` (Bevy 0.18 API, not `EventWriter`).
+**Let-chains**: Rust 2024 edition enables `if let ... && condition { }`.
 
 **Plugins** are self-contained: own their types, startup systems, and update systems.
-Plugin-internal functions are **private**; cross-module functions are `pub`.
+Plugin-internal functions are private; cross-module functions are `pub`.
+
+## Testing Patterns
+
+Tests live in `#[cfg(test)] mod tests` at the bottom of each file. Key conventions:
+
+- `test_app()` helper creates `App::new()` with `MinimalPlugins` for minimal Bevy setup.
+- `game.rs` has a separate `pause_menu_test_app()` for pause-specific tests.
+- Setup: `app.world_mut().spawn(...)` -> Run: `app.update()` -> Assert: query results.
+- `unwrap()` is allowed in test code (never in production).
+- Section comments within test modules: `// --- function_name ---`.
 
 ## Git Conventions
 
-- **Default branch**: `master`
+- **Default branch**: `main`
 - **Feature branches**: `feat/<feature-name>` (kebab-case)
 - **Commit format**: `type: short description` (lowercase, imperative, no period)
+  - Types: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
   - Body separated by blank line, uses `-` bullet lists
-  - Types: `feat:` for new features, `fix:` for bug fixes, `refactor:`, `docs:`, `chore:`
-- **Workflow**: feature branch -> merge to `master` when working
-- **Dependencies**: always add via `cargo add`, never edit Cargo.toml manually
 
-## Architecture Notes
+## Architecture
 
-- `components.rs` is the shared "prelude" — holds all types other modules need.
-- Collision uses AABB (axis-aligned bounding box) via `check_aabb_collision()` — reused
-  by wall, paddle, and brick collision systems (DRY).
-- Game states: `Menu -> Playing -> GameOver | Victory -> Menu` (via SPACE key).
+- `components.rs` is the shared "prelude" - holds all types other modules need.
+- AABB collision via `check_aabb_collision()` - reused by wall, paddle, and brick systems.
+- Game states: `Menu -> Playing <-> Paused`, `Playing -> GameOver | Victory -> Menu`.
 - No `unsafe`, no `async`, no logging/tracing instrumentation.

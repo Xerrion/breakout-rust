@@ -5,20 +5,29 @@ mod game;
 mod movement;
 mod setup;
 
+use bevy::asset::AssetPlugin;
 use bevy::prelude::*;
+
 use components::*;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Breakout".to_string(),
-                resolution: (WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32).into(),
-                resizable: false,
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Breakout".to_string(),
+                        resolution: (WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32).into(),
+                        resizable: false,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    file_path: format!("{}/assets", env!("CARGO_MANIFEST_DIR")),
+                    ..default()
+                }),
+        )
         .add_plugins(background::BackgroundPlugin)
         // State
         .init_state::<GameState>()

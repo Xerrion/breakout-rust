@@ -1,6 +1,5 @@
-use bevy::app::AppExit;
-use bevy::ecs::prelude::MessageWriter;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
 use crate::components::*;
 
@@ -281,8 +280,9 @@ pub fn pause_menu_mouse_interaction(
         (Changed<Interaction>, With<Button>),
     >,
     mut next_state: ResMut<NextState<GameState>>,
-    mut app_exit: MessageWriter<AppExit>,
+    mut commands: Commands,
     mut menu_state: ResMut<PauseMenuState>,
+    window_query: Query<Entity, With<PrimaryWindow>>,
 ) {
     for (interaction, mut bg_color, is_resume, is_quit) in &mut interaction_query {
         match *interaction {
@@ -290,8 +290,10 @@ pub fn pause_menu_mouse_interaction(
                 *bg_color = BUTTON_PRESSED.into();
                 if is_resume.is_some() {
                     next_state.set(GameState::Playing);
-                } else if is_quit.is_some() {
-                    app_exit.write(AppExit::Success);
+                } else if is_quit.is_some()
+                    && let Ok(window) = window_query.single()
+                {
+                    commands.entity(window).despawn();
                 }
             }
             Interaction::Hovered => {
@@ -320,7 +322,8 @@ pub fn pause_menu_keyboard_navigation(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut menu_state: ResMut<PauseMenuState>,
     mut next_state: ResMut<NextState<GameState>>,
-    mut app_exit: MessageWriter<AppExit>,
+    mut commands: Commands,
+    window_query: Query<Entity, With<PrimaryWindow>>,
 ) {
     // Navigate up/down
     if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
@@ -335,7 +338,9 @@ pub fn pause_menu_keyboard_navigation(
         match menu_state.selected {
             0 => next_state.set(GameState::Playing), // Resume
             1 => {
-                app_exit.write(AppExit::Success); // Quit
+                if let Ok(window) = window_query.single() {
+                    commands.entity(window).despawn();
+                }
             }
             _ => {}
         }

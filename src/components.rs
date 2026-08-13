@@ -12,6 +12,28 @@ pub enum GameState {
     Victory,
 }
 
+// --- Actions ---
+
+/// Discrete paddle action, written by either keyboard input or an AI agent.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PaddleAction {
+    Left,
+    #[default]
+    Stay,
+    Right,
+}
+
+impl PaddleAction {
+    /// Returns the horizontal direction of the action as -1.0, 0.0 or 1.0.
+    pub fn direction(self) -> f32 {
+        match self {
+            PaddleAction::Left => -1.0,
+            PaddleAction::Stay => 0.0,
+            PaddleAction::Right => 1.0,
+        }
+    }
+}
+
 // --- Components ---
 
 #[derive(Component)]
@@ -78,8 +100,70 @@ pub struct Lives {
 
 impl Default for Lives {
     fn default() -> Self {
-        Self { count: 3 }
+        Self {
+            count: INITIAL_LIVES,
+        }
     }
+}
+
+/// Configuration of the ball launch direction used on every episode reset.
+#[derive(Resource, Default)]
+pub struct BallLaunch {
+    /// Maximum random angle offset (radians) applied to the launch direction.
+    pub angle_jitter: f32,
+}
+
+/// Deterministic pseudo random number generator used by the simulation.
+#[derive(Resource)]
+pub struct SimRng {
+    state: u64,
+}
+
+impl Default for SimRng {
+    fn default() -> Self {
+        Self::new(DEFAULT_SEED)
+    }
+}
+
+impl SimRng {
+    /// Creates a generator from a seed.
+    pub fn new(seed: u64) -> Self {
+        Self {
+            state: seed | 1, // avoid the zero state
+        }
+    }
+
+    /// Returns the next pseudo random value in the range 0.0..1.0.
+    pub fn next_f32(&mut self) -> f32 {
+        // xorshift64*
+        let mut x = self.state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.state = x;
+        let value = x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40; // 24 bits
+        value as f32 / (1u32 << 24) as f32
+    }
+
+    /// Returns the next pseudo random value in the range -1.0..1.0.
+    pub fn next_signed_f32(&mut self) -> f32 {
+        self.next_f32() * 2.0 - 1.0
+    }
+}
+
+/// Returns the ball start position for a new life or episode.
+pub fn ball_start_position() -> Vec2 {
+    Vec2::new(0.0, PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0)
+}
+
+/// Returns the ball launch velocity, optionally jittered by `launch.angle_jitter`.
+pub fn ball_launch_velocity(launch: &BallLaunch, rng: &mut SimRng) -> Vec2 {
+    let base = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
+    if launch.angle_jitter <= 0.0 {
+        return base;
+    }
+    let angle = rng.next_signed_f32() * launch.angle_jitter;
+    Vec2::from_angle(angle).rotate(base)
 }
 
 // --- Shared Constants ---
@@ -95,10 +179,20 @@ pub const PADDLE_Y: f32 = -WINDOW_HEIGHT / 2.0 + 40.0;
 pub const PADDLE_SPEED: f32 = 500.0;
 pub const PADDLE_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 
+// Simulation
+/// Fixed simulation timestep in seconds (60 Hz).
+pub const FIXED_TIMESTEP: f32 = 1.0 / 60.0;
+/// Default seed for the deterministic simulation RNG.
+pub const DEFAULT_SEED: u64 = 0x5EED_1234_5EED_1234;
+/// Number of lives at the start of an episode.
+pub const INITIAL_LIVES: u32 = 3;
+
 // Ball
 pub const BALL_SIZE: f32 = 16.0;
 pub const BALL_SPEED: f32 = 350.0;
 pub const BALL_COLOR: Color = Color::srgb(1.0, 1.0, 1.0);
+/// Upper bound used to normalize ball velocity components in observations.
+pub const BALL_MAX_SPEED: f32 = BALL_SPEED * 2.0;
 
 // Bricks
 pub const BRICK_WIDTH: f32 = 80.0;

@@ -151,6 +151,8 @@ pub fn ball_collision_bricks(
 pub fn ball_death_zone(
     mut ball_query: Query<(&mut Transform, &mut Ball)>,
     mut lives: ResMut<Lives>,
+    launch: Res<BallLaunch>,
+    mut rng: ResMut<SimRng>,
 ) {
     let Ok((mut ball_transform, mut ball)) = ball_query.single_mut() else {
         return;
@@ -162,9 +164,10 @@ pub fn ball_death_zone(
         lives.count = lives.count.saturating_sub(1);
 
         // Reset ball position
-        ball_transform.translation.x = 0.0;
-        ball_transform.translation.y = PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
-        ball.velocity = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
+        let start = ball_start_position();
+        ball_transform.translation.x = start.x;
+        ball_transform.translation.y = start.y;
+        ball.velocity = ball_launch_velocity(&launch, &mut rng);
     }
 }
 
@@ -200,6 +203,8 @@ mod tests {
         app.add_plugins(MinimalPlugins);
         app.init_resource::<Scoreboard>();
         app.init_resource::<Lives>();
+        app.init_resource::<BallLaunch>();
+        app.init_resource::<SimRng>();
         app
     }
 

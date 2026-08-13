@@ -8,7 +8,7 @@ pub fn spawn_camera(mut commands: Commands) {
 }
 
 /// Spawns the paddle, ball, bricks, and walls.
-pub fn spawn_game(mut commands: Commands) {
+pub fn spawn_game(mut commands: Commands, launch: Res<BallLaunch>, mut rng: ResMut<SimRng>) {
     // Paddle
     commands.spawn((
         Sprite {
@@ -22,16 +22,16 @@ pub fn spawn_game(mut commands: Commands) {
     ));
 
     // Ball (starts just above paddle)
-    let ball_start_y = PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
+    let ball_start = ball_start_position();
     commands.spawn((
         Sprite {
             color: BALL_COLOR,
             custom_size: Some(Vec2::splat(BALL_SIZE)),
             ..default()
         },
-        Transform::from_xyz(0.0, ball_start_y, 1.0),
+        Transform::from_xyz(ball_start.x, ball_start.y, 1.0),
         Ball {
-            velocity: Vec2::new(BALL_SPEED * 0.7, BALL_SPEED),
+            velocity: ball_launch_velocity(&launch, &mut rng),
         },
     ));
 
@@ -114,7 +114,7 @@ pub fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("Score: 0"),
         TextFont {
-            font_size: 24.0,
+            font_size: FontSize::Px(24.0),
             ..default()
         },
         TextColor(Color::WHITE),
@@ -131,7 +131,7 @@ pub fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("Lives: 3"),
         TextFont {
-            font_size: 24.0,
+            font_size: FontSize::Px(24.0),
             ..default()
         },
         TextColor(Color::WHITE),
@@ -150,11 +150,14 @@ pub fn spawn_menu(mut commands: Commands) {
     commands.spawn((
         Text::new("BREAKOUT\n\nPress SPACE to start"),
         TextFont {
-            font_size: 40.0,
+            font_size: FontSize::Px(40.0),
             ..default()
         },
         TextColor(Color::WHITE),
-        TextLayout::new_with_justify(Justify::Center),
+        TextLayout {
+            justify: Justify::Center,
+            ..default()
+        },
         Node {
             position_type: PositionType::Absolute,
             top: Val::Percent(35.0),
@@ -173,20 +176,77 @@ pub fn despawn_overlay(mut commands: Commands, query: Query<Entity, With<Overlay
     }
 }
 
-/// Resets ball and paddle positions when entering Playing state.
-pub fn reset_ball_and_paddle(
-    mut paddle_query: Query<&mut Transform, With<Paddle>>,
-    mut ball_query: Query<(&mut Transform, &mut Ball), Without<Paddle>>,
+/// Despawns all simulation entities (paddle, ball, bricks, walls).
+#[allow(clippy::type_complexity)]
+pub fn despawn_sim_entities(
+    mut commands: Commands,
+    query: Query<Entity, Or<(With<Paddle>, With<Ball>, With<Brick>, With<Wall>)>>,
 ) {
-    if let Ok(mut paddle_transform) = paddle_query.single_mut() {
-        paddle_transform.translation.x = 0.0;
+    for entity in &query {
+        commands.entity(entity).despawn();
     }
+}
 
-    if let Ok((mut ball_transform, mut ball)) = ball_query.single_mut() {
-        ball_transform.translation.x = 0.0;
-        ball_transform.translation.y = PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
-        ball.velocity = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
-    }
+/// Resets score, lives and the current action to their episode start values.
+pub fn reset_sim_resources(
+    mut scoreboard: ResMut<Scoreboard>,
+    mut lives: ResMut<Lives>,
+    mut action: ResMut<PaddleAction>,
+) {
+    scoreboard.score = 0;
+    lives.count = INITIAL_LIVES;
+    *action = PaddleAction::Stay;
+}
+
+/// Spawns the game over overlay text.
+pub fn spawn_game_over_overlay(mut commands: Commands) {
+    commands.spawn((
+        Text::new("GAME OVER\n\nPress SPACE to restart"),
+        TextFont {
+            font_size: FontSize::Px(40.0),
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.3, 0.3)),
+        TextLayout {
+            justify: Justify::Center,
+            ..default()
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(35.0),
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        OverlayUi,
+    ));
+}
+
+/// Spawns the victory overlay text including the final score.
+pub fn spawn_victory_overlay(mut commands: Commands, scoreboard: Res<Scoreboard>) {
+    commands.spawn((
+        Text::new(format!(
+            "YOU WIN!\n\nScore: {}\n\nPress SPACE to restart",
+            scoreboard.score
+        )),
+        TextFont {
+            font_size: FontSize::Px(40.0),
+            ..default()
+        },
+        TextColor(Color::srgb(0.3, 1.0, 0.3)),
+        TextLayout {
+            justify: Justify::Center,
+            ..default()
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(30.0),
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        OverlayUi,
+    ));
 }
 
 #[cfg(test)]
@@ -196,6 +256,8 @@ mod tests {
     fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
+        app.init_resource::<BallLaunch>();
+        app.init_resource::<SimRng>();
         app
     }
 
@@ -293,40 +355,51 @@ mod tests {
         assert_eq!(after, 0, "All OverlayUi entities should be despawned");
     }
 
-    // --- reset_ball_and_paddle ---
+    // --- despawn_sim_entities ---
 
     #[test]
-    fn reset_ball_and_paddle_resets_positions() {
+    fn despawn_sim_entities_removes_all_gameplay_entities() {
         let mut app = test_app();
-        app.add_systems(Update, reset_ball_and_paddle);
-
-        // Spawn paddle at off-center position
-        app.world_mut()
-            .spawn((Transform::from_xyz(200.0, PADDLE_Y, 0.0), Paddle));
-
-        // Spawn ball at off-center position with different velocity
-        app.world_mut().spawn((
-            Transform::from_xyz(100.0, 50.0, 1.0),
-            Ball {
-                velocity: Vec2::new(-100.0, -200.0),
-            },
-        ));
+        app.add_systems(Startup, spawn_game);
+        app.add_systems(Update, despawn_sim_entities);
+        app.update();
 
         app.update();
 
-        let mut q = app.world_mut().query::<(&Transform, &Paddle)>();
-        let paddle_x = q.iter(app.world()).next().unwrap().0.translation.x;
-        assert!((paddle_x).abs() < 0.01, "Paddle x should reset to 0");
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, Or<(With<Paddle>, With<Ball>, With<Brick>, With<Wall>)>>();
+        let count = q.iter(app.world()).count();
+        assert_eq!(count, 0, "All simulation entities should be despawned");
+    }
 
-        let mut q = app.world_mut().query::<(&Transform, &Ball)>();
-        let (ball_transform, ball) = q.iter(app.world()).next().unwrap();
-        assert!(
-            (ball_transform.translation.x).abs() < 0.01,
-            "Ball x should reset to 0"
-        );
-        assert!(
-            ball.velocity.y > 0.0,
-            "Ball should be moving upward after reset"
-        );
+    // --- reset_sim_resources ---
+
+    #[test]
+    fn reset_sim_resources_restores_start_values() {
+        let mut app = test_app();
+        app.insert_resource(Scoreboard { score: 120 });
+        app.insert_resource(Lives { count: 1 });
+        app.insert_resource(PaddleAction::Left);
+        app.add_systems(Update, reset_sim_resources);
+
+        app.update();
+
+        assert_eq!(app.world().resource::<Scoreboard>().score, 0);
+        assert_eq!(app.world().resource::<Lives>().count, INITIAL_LIVES);
+        assert_eq!(*app.world().resource::<PaddleAction>(), PaddleAction::Stay);
+    }
+
+    // --- spawn_game ball launch ---
+
+    #[test]
+    fn spawn_game_launches_ball_upwards() {
+        let mut app = test_app();
+        app.add_systems(Startup, spawn_game);
+        app.update();
+
+        let mut q = app.world_mut().query::<&Ball>();
+        let ball = q.iter(app.world()).next().unwrap();
+        assert!(ball.velocity.y > 0.0, "Ball should start moving upward");
     }
 }

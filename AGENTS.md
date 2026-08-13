@@ -2,7 +2,8 @@
 
 ## Project Overview
 
-Breakout game built with Rust and Bevy 0.18. Single-crate binary, no workspace.
+Breakout game built with Rust and Bevy 0.19. Single crate with a library (`lib.rs`)
+and a thin binary (`main.rs`), no workspace.
 Rust edition 2024. Single dependency: `bevy`. No feature flags, no build scripts.
 
 ## Build / Run / Test Commands
@@ -15,7 +16,7 @@ cargo check                  # Type-check only (fastest feedback)
 cargo clippy -- -D warnings  # Lint (treat warnings as errors)
 cargo fmt                    # Format code
 cargo fmt -- --check         # Check formatting without modifying
-cargo test                   # Run all tests (51 tests across 5 modules)
+cargo test                   # Run all tests (74 tests across 7 modules)
 cargo test <test_name>       # Run a single test by name
 cargo test --bin breakout-rust <module>::tests::<test_name>  # Single test in module
 cargo add <crate_name>       # Add dependency (never edit Cargo.toml manually)
@@ -25,12 +26,16 @@ cargo add <crate_name>       # Add dependency (never edit Cargo.toml manually)
 
 ```
 src/
-  main.rs           # App entry, module declarations (alphabetical), Bevy App builder
+  main.rs           # Thin binary entry point: calls `breakout_rust::run()`
+  lib.rs            # Module declarations (alphabetical) + rendered `game_app()` builder
   background.rs     # Self-contained BackgroundPlugin (shader material + systems)
   collision.rs      # Collision detection systems (AABB-based)
   components.rs     # All shared types, resources, constants, collision helper
+  environment.rs    # Headless BreakoutEnv: reset/step/observation, Observation, StepResult
   game.rs           # UI updates, state transitions, restart, pause menu logic
-  movement.rs       # Paddle input, ball physics
+  gameplay.rs       # GameplayPlugin: simulation-only systems on a fixed timestep
+  movement.rs       # Paddle action input, paddle/ball movement
+  presentation.rs   # PresentationPlugin: rendering, UI, overlays, player input
   setup.rs          # Spawn/despawn systems: camera, entities, UI, overlays
 assets/
   shaders/
@@ -114,22 +119,31 @@ Colors use `Color::srgb(r, g, b)`. Never use `static`.
 -> Mutable state (`ResMut<NextState<...>>`, `Commands`) -> Queries (`Query<...>`).
 Exception: `Commands` comes first in spawn-focused systems.
 
-**App builder order in `main.rs`**:
+**App builder order in `lib.rs` / plugins**:
 1. `add_plugins(DefaultPlugins.set(...))` then custom plugins
 2. `.init_state::<T>()` / `.init_resource::<T>()`
 3. `.add_systems(Startup, ...)` then state-grouped systems
 4. Each state group labeled with comments: `// Menu state`, `// Playing state`, etc.
 
 **System ordering**: Use `.chain()` for sequential execution within a state group.
-**Multi-state runs**: Use `.or()` - e.g., `in_state(Playing).or(in_state(Paused))`.
+**Multi-state runs**: Use `.or_else()` - e.g., `in_state(Playing).or_else(in_state(Paused))`.
 **State hooks**: `OnEnter(GameState::X)` / `OnExit(GameState::X)` for spawn/despawn.
 **Entity spawning**: Tuple bundles `commands.spawn((Component, Component, ...))`.
 **Hierarchical UI**: `with_children` / `with_child` for nested UI elements.
 **Sprite sizing**: `Sprite { custom_size: Some(Vec2::new(...)), ..default() }`.
 **z-ordering**: background `-100.0`, default entities `0.0`, ball `1.0`.
 **First-run guard**: `Local<bool>` to skip logic on first state enter.
-**App exit**: `MessageWriter<AppExit>` (Bevy 0.18 API, not `EventWriter`).
+**App exit**: `MessageWriter<AppExit>` (Bevy 0.19 API, not `EventWriter`).
+**Text**: `TextFont { font_size: FontSize::Px(24.0), .. }`, `TextLayout { justify, .. }`.
 **Let-chains**: Rust 2024 edition enables `if let ... && condition { }`.
+
+**Fixed timestep**: gameplay systems run in `FixedUpdate` and use the
+`FIXED_TIMESTEP` constant instead of `Time::delta_secs()`, so the simulation is
+deterministic and independent of real time.
+**Paddle control**: keyboard (or an AI agent) writes the `PaddleAction` resource;
+only `movement::move_paddle` moves the paddle.
+**Episode reset**: the `SimReset` schedule (despawn -> reset resources -> spawn)
+is run by `gameplay::run_sim_reset` and gives a complete, known start state.
 
 **Plugins** are self-contained: own their types, startup systems, and update systems.
 Plugin-internal functions are private; cross-module functions are `pub`.
@@ -155,6 +169,11 @@ Tests live in `#[cfg(test)] mod tests` at the bottom of each file. Key conventio
 ## Architecture
 
 - `components.rs` is the shared "prelude" - holds all types other modules need.
+- `GameplayPlugin` (simulation) is separate from `PresentationPlugin` (rendering,
+  UI, input), so the same gameplay systems run rendered and headless.
+- `BreakoutEnv` in `environment.rs` drives the simulation without window,
+  rendering, UI, audio or frame limiter, with `reset()`, `step(action)` and
+  `observation()`, action repeat and normalized observations/rewards.
 - AABB collision via `check_aabb_collision()` - reused by wall, paddle, and brick systems.
 - Game states: `Menu -> Playing <-> Paused`, `Playing -> GameOver | Victory -> Menu`.
 - No `unsafe`, no `async`, no logging/tracing instrumentation.

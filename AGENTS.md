@@ -2,7 +2,8 @@
 
 ## Project Overview
 
-Breakout game built with Rust and Bevy 0.18. Single-crate binary, no workspace.
+Breakout game built with Rust and Bevy 0.19. Single crate with a library and a
+binary target, no workspace.
 Rust edition 2024. Single dependency: `bevy`. No feature flags, no build scripts.
 
 ## Build / Run / Test Commands
@@ -11,13 +12,14 @@ Rust edition 2024. Single dependency: `bevy`. No feature flags, no build scripts
 cargo build                  # Dev build
 cargo build --release        # Release build
 cargo run                    # Run the game
+cargo run -- --headless      # Run the simulation headless (training mode)
 cargo check                  # Type-check only (fastest feedback)
 cargo clippy -- -D warnings  # Lint (treat warnings as errors)
 cargo fmt                    # Format code
 cargo fmt -- --check         # Check formatting without modifying
-cargo test                   # Run all tests (51 tests across 5 modules)
+cargo test                   # Run all tests (94 tests across 7 modules)
 cargo test <test_name>       # Run a single test by name
-cargo test --bin breakout-rust <module>::tests::<test_name>  # Single test in module
+cargo test --lib <module>::tests::<test_name>  # Single test in module
 cargo add <crate_name>       # Add dependency (never edit Cargo.toml manually)
 ```
 
@@ -25,12 +27,15 @@ cargo add <crate_name>       # Add dependency (never edit Cargo.toml manually)
 
 ```
 src/
-  main.rs           # App entry, module declarations (alphabetical), Bevy App builder
+  main.rs           # Thin entry point: windowed game or headless training mode
+  lib.rs            # Module declarations (alphabetical), PresentationPlugin, game_app()
   background.rs     # Self-contained BackgroundPlugin (shader material + systems)
   collision.rs      # Collision detection systems (AABB-based)
   components.rs     # All shared types, resources, constants, collision helper
+  environment.rs    # Headless app, BreakoutEnv (reset/step/observation), Observation
   game.rs           # UI updates, state transitions, restart, pause menu logic
-  movement.rs       # Paddle input, ball physics
+  gameplay.rs       # GameplayPlugin + `Simulation` schedule (fixed-timestep physics)
+  movement.rs       # PaddleAction input mapping, paddle and ball movement
   setup.rs          # Spawn/despawn systems: camera, entities, UI, overlays
 assets/
   shaders/
@@ -130,6 +135,15 @@ Exception: `Commands` comes first in spawn-focused systems.
 **First-run guard**: `Local<bool>` to skip logic on first state enter.
 **App exit**: `MessageWriter<AppExit>` (Bevy 0.18 API, not `EventWriter`).
 **Let-chains**: Rust 2024 edition enables `if let ... && condition { }`.
+
+**Simulation vs presentation**: `GameplayPlugin` owns the headless-safe simulation
+in the custom `Simulation` schedule; `PresentationPlugin` owns window, rendering,
+UI and player input. The windowed app drives `Simulation` from `FixedUpdate`,
+while `BreakoutEnv` steps it manually. Gameplay systems use the `SIM_DT`
+constant, never `Time::delta_secs()`.
+
+**Actions**: keyboard input writes the `PaddleAction` resource; only
+`movement::move_paddle` reads it, so agents can drive the paddle the same way.
 
 **Plugins** are self-contained: own their types, startup systems, and update systems.
 Plugin-internal functions are private; cross-module functions are `pub`.

@@ -1,93 +1,61 @@
-mod background;
-mod collision;
-mod components;
-mod game;
-mod movement;
-mod setup;
-
-use bevy::asset::AssetPlugin;
-use bevy::prelude::*;
-
-use components::*;
+use breakout_rust::components::PaddleAction;
+use breakout_rust::environment::{BreakoutEnv, EnvConfig, Observation};
+use breakout_rust::game_app;
 
 fn main() {
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Breakout".to_string(),
-                        resolution: (WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32).into(),
-                        resizable: false,
-                        ..default()
-                    }),
-                    ..default()
-                })
-                .set(AssetPlugin {
-                    file_path: format!("{}/assets", env!("CARGO_MANIFEST_DIR")),
-                    ..default()
-                }),
-        )
-        .add_plugins(background::BackgroundPlugin)
-        // State
-        .init_state::<GameState>()
-        // Resources
-        .init_resource::<Scoreboard>()
-        .init_resource::<Lives>()
-        .init_resource::<PauseMenuState>()
-        // Startup systems
-        .add_systems(
-            Startup,
-            (setup::spawn_camera, setup::spawn_game, setup::spawn_ui),
-        )
-        // Menu state
-        .add_systems(OnEnter(GameState::Menu), setup::spawn_menu)
-        .add_systems(OnExit(GameState::Menu), setup::despawn_overlay)
-        .add_systems(Update, game::menu_input.run_if(in_state(GameState::Menu)))
-        // Playing state
-        .add_systems(OnEnter(GameState::Playing), setup::reset_ball_and_paddle)
-        .add_systems(
-            Update,
-            (
-                movement::move_paddle,
-                movement::move_ball,
-                collision::ball_collision_walls_and_paddle,
-                collision::ball_collision_bricks,
-                collision::clamp_ball_to_bounds,
-                collision::ball_death_zone,
-                game::update_scoreboard_ui,
-                game::update_lives_ui,
-                game::check_game_over,
-                game::check_victory,
-            )
-                .chain()
-                .run_if(in_state(GameState::Playing)),
-        )
-        // Paused state
-        .add_systems(OnEnter(GameState::Paused), game::spawn_pause_overlay)
-        .add_systems(OnExit(GameState::Paused), setup::despawn_overlay)
-        .add_systems(
-            Update,
-            (
-                game::pause_menu_mouse_interaction,
-                game::pause_menu_keyboard_navigation,
-                game::update_pause_menu_visuals,
-            )
-                .run_if(in_state(GameState::Paused)),
-        )
-        .add_systems(
-            Update,
-            game::pause_input
-                .run_if(in_state(GameState::Playing).or_else(in_state(GameState::Paused))),
-        )
-        // GameOver / Victory
-        .add_systems(OnExit(GameState::GameOver), setup::despawn_overlay)
-        .add_systems(OnExit(GameState::Victory), setup::despawn_overlay)
-        .add_systems(
-            Update,
-            game::restart_input
-                .run_if(in_state(GameState::GameOver).or_else(in_state(GameState::Victory))),
-        )
-        .add_systems(OnEnter(GameState::Menu), game::respawn_on_menu_enter)
-        .run();
+    if std::env::args().any(|arg| arg == "--headless" || arg == "--train") {
+        run_headless();
+        return;
+    }
+
+    game_app().run();
 }
+
+/// Runs the simulation headless (no window, rendering, UI, audio or frame
+/// limiter) using a simple scripted policy — a starting point for training.
+fn run_headless() {
+    let mut env = BreakoutEnv::with_config(EnvConfig {
+        randomize_ball_direction: true,
+        ..Default::default()
+    });
+
+    for episode in 0..HEADLESS_EPISODES {
+        let mut observation = env.reset();
+        let mut total_reward = 0.0;
+
+        for _ in 0..HEADLESS_MAX_STEPS {
+            let result = env.step(follow_ball(observation));
+            observation = result.observation;
+            total_reward += result.reward;
+
+            if result.terminated {
+                break;
+            }
+        }
+
+        println!(
+            "episode {episode}: score={} lives={} reward={total_reward:.1} state={:?}",
+            env.score(),
+            env.lives(),
+            env.state()
+        );
+    }
+}
+
+/// Baseline policy: move the paddle towards the ball.
+fn follow_ball(observation: Observation) -> PaddleAction {
+    let delta = observation.ball_x - observation.paddle_x;
+
+    if delta < -FOLLOW_DEAD_ZONE {
+        PaddleAction::Left
+    } else if delta > FOLLOW_DEAD_ZONE {
+        PaddleAction::Right
+    } else {
+        PaddleAction::Stay
+    }
+}
+
+// Headless run settings
+const HEADLESS_EPISODES: u32 = 3;
+const HEADLESS_MAX_STEPS: u32 = 20_000;
+const FOLLOW_DEAD_ZONE: f32 = 0.01;

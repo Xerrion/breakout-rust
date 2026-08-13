@@ -27,62 +27,16 @@ pub fn update_lives_ui(lives: Res<Lives>, mut query: Query<&mut Text, With<Lives
 }
 
 /// Transitions to GameOver when lives reach 0.
-pub fn check_game_over(
-    lives: Res<Lives>,
-    mut next_state: ResMut<NextState<GameState>>,
-    mut commands: Commands,
-) {
+pub fn check_game_over(lives: Res<Lives>, mut next_state: ResMut<NextState<GameState>>) {
     if lives.count == 0 {
         next_state.set(GameState::GameOver);
-        commands.spawn((
-            Text::new("GAME OVER\n\nPress SPACE to restart"),
-            TextFont {
-                font_size: FontSize::Px(40.0),
-                ..default()
-            },
-            TextColor(Color::srgb(1.0, 0.3, 0.3)),
-            TextLayout::justify(Justify::Center),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Percent(35.0),
-                width: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            OverlayUi,
-        ));
     }
 }
 
 /// Transitions to Victory when all bricks are destroyed.
-pub fn check_victory(
-    brick_query: Query<&Brick>,
-    mut next_state: ResMut<NextState<GameState>>,
-    mut commands: Commands,
-    scoreboard: Res<Scoreboard>,
-) {
+pub fn check_victory(brick_query: Query<&Brick>, mut next_state: ResMut<NextState<GameState>>) {
     if brick_query.is_empty() {
         next_state.set(GameState::Victory);
-        commands.spawn((
-            Text::new(format!(
-                "YOU WIN!\n\nScore: {}\n\nPress SPACE to restart",
-                scoreboard.score
-            )),
-            TextFont {
-                font_size: FontSize::Px(40.0),
-                ..default()
-            },
-            TextColor(Color::srgb(0.3, 1.0, 0.3)),
-            TextLayout::justify(Justify::Center),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Percent(30.0),
-                width: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            OverlayUi,
-        ));
     }
 }
 
@@ -97,30 +51,22 @@ pub fn menu_input(
 }
 
 /// Handles SPACE press on GameOver/Victory screens to restart.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub fn restart_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut next_state: ResMut<NextState<GameState>>,
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     mut lives: ResMut<Lives>,
-    brick_query: Query<Entity, With<Brick>>,
-    ball_query: Query<Entity, With<Ball>>,
-    paddle_query: Query<Entity, With<Paddle>>,
-    wall_query: Query<Entity, With<Wall>>,
+    entity_query: Query<Entity, Or<(With<Paddle>, With<Ball>, With<Brick>, With<Wall>)>>,
 ) {
     if keyboard.just_pressed(KeyCode::Space) {
         // Reset resources
         scoreboard.score = 0;
-        lives.count = 3;
+        lives.count = STARTING_LIVES;
 
         // Despawn all game entities
-        for entity in brick_query
-            .iter()
-            .chain(ball_query.iter())
-            .chain(paddle_query.iter())
-            .chain(wall_query.iter())
-        {
+        for entity in &entity_query {
             commands.entity(entity).despawn();
         }
 
@@ -404,10 +350,12 @@ mod tests {
         app.world_mut().resource_mut::<Lives>().count = 0;
 
         app.update();
+        app.update();
 
-        let mut q = app.world_mut().query::<&OverlayUi>();
-        let overlay_count = q.iter(app.world()).count();
-        assert_eq!(overlay_count, 1, "Should spawn a game-over overlay");
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::GameOver
+        );
     }
 
     #[test]
@@ -416,10 +364,12 @@ mod tests {
         app.add_systems(Update, check_game_over);
 
         app.update();
+        app.update();
 
-        let mut q = app.world_mut().query::<&OverlayUi>();
-        let overlay_count = q.iter(app.world()).count();
-        assert_eq!(overlay_count, 0, "Should not spawn overlay when lives > 0");
+        assert_ne!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::GameOver
+        );
     }
 
     // --- check_victory ---
@@ -431,10 +381,12 @@ mod tests {
         // No bricks spawned
 
         app.update();
+        app.update();
 
-        let mut q = app.world_mut().query::<&OverlayUi>();
-        let overlay_count = q.iter(app.world()).count();
-        assert_eq!(overlay_count, 1, "Should spawn a victory overlay");
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::Victory
+        );
     }
 
     #[test]
@@ -447,12 +399,11 @@ mod tests {
             .spawn((Transform::from_xyz(0.0, 100.0, 0.0), Brick));
 
         app.update();
+        app.update();
 
-        let mut q = app.world_mut().query::<&OverlayUi>();
-        let overlay_count = q.iter(app.world()).count();
-        assert_eq!(
-            overlay_count, 0,
-            "Should not spawn overlay when bricks remain"
+        assert_ne!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::Victory
         );
     }
 

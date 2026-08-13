@@ -64,6 +64,36 @@ pub const BUTTON_NORMAL: Color = Color::srgb(0.15, 0.15, 0.15);
 pub const BUTTON_HOVERED: Color = Color::srgb(0.35, 0.35, 0.35);
 pub const BUTTON_PRESSED: Color = Color::srgb(0.7, 0.6, 0.1);
 
+// --- Actions ---
+
+/// The paddle intent for the current simulation tick.
+///
+/// Both the keyboard input system and an external agent write to this resource;
+/// the paddle movement system is the only reader.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PaddleAction {
+    Left,
+    #[default]
+    Stay,
+    Right,
+}
+
+impl PaddleAction {
+    /// Returns the horizontal direction (-1, 0 or 1) for this action.
+    pub fn direction(self) -> f32 {
+        match self {
+            PaddleAction::Left => -1.0,
+            PaddleAction::Stay => 0.0,
+            PaddleAction::Right => 1.0,
+        }
+    }
+
+    /// Returns all actions in a stable order (useful for agents).
+    pub fn all() -> [PaddleAction; 3] {
+        [PaddleAction::Left, PaddleAction::Stay, PaddleAction::Right]
+    }
+}
+
 // --- Resources ---
 
 #[derive(Resource, Default)]
@@ -78,7 +108,65 @@ pub struct Lives {
 
 impl Default for Lives {
     fn default() -> Self {
-        Self { count: 3 }
+        Self {
+            count: STARTING_LIVES,
+        }
+    }
+}
+
+/// Deterministic launch direction generator for the ball.
+///
+/// With `randomize` disabled the ball always starts along the same fixed
+/// trajectory; when enabled the direction is jittered using a seeded PRNG so
+/// episodes stay reproducible for a given seed.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct BallLaunch {
+    pub randomize: bool,
+    seed: u64,
+    state: u64,
+}
+
+impl Default for BallLaunch {
+    fn default() -> Self {
+        Self::new(DEFAULT_SEED, false)
+    }
+}
+
+impl BallLaunch {
+    /// Creates a launcher with the given seed and randomization setting.
+    pub fn new(seed: u64, randomize: bool) -> Self {
+        Self {
+            randomize,
+            seed,
+            state: seed.wrapping_add(BALL_LAUNCH_SEED_OFFSET),
+        }
+    }
+
+    /// Restores the launcher to its initial (post-seed) state.
+    pub fn reseed(&mut self) {
+        self.state = self.seed.wrapping_add(BALL_LAUNCH_SEED_OFFSET);
+    }
+
+    /// Returns the next launch velocity for the ball.
+    pub fn next_velocity(&mut self) -> Vec2 {
+        let base = Vec2::new(BALL_SPEED * BALL_LAUNCH_X_RATIO, BALL_SPEED);
+        if !self.randomize {
+            return base;
+        }
+
+        let angle = base.y.atan2(base.x) + (self.next_unit() * 2.0 - 1.0) * BALL_LAUNCH_JITTER;
+        Vec2::new(angle.cos(), angle.sin()) * base.length()
+    }
+
+    /// Returns the next pseudo-random value in `0..1` (xorshift64*).
+    fn next_unit(&mut self) -> f32 {
+        let mut x = self.state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.state = x;
+        let value = x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40;
+        value as f32 / (1u64 << 24) as f32
     }
 }
 
@@ -99,6 +187,9 @@ pub const PADDLE_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 pub const BALL_SIZE: f32 = 16.0;
 pub const BALL_SPEED: f32 = 350.0;
 pub const BALL_COLOR: Color = Color::srgb(1.0, 1.0, 1.0);
+pub const BALL_LAUNCH_X_RATIO: f32 = 0.7;
+pub const BALL_LAUNCH_JITTER: f32 = 0.25; // radians
+pub const BALL_LAUNCH_SEED_OFFSET: u64 = 0x9E37_79B9_7F4A_7C15;
 
 // Bricks
 pub const BRICK_WIDTH: f32 = 80.0;
@@ -118,6 +209,22 @@ pub const POINTS_PER_BRICK: u32 = 10;
 // Walls
 pub const WALL_THICKNESS: f32 = 10.0;
 pub const WALL_COLOR: Color = Color::srgb(0.3, 0.3, 0.3);
+
+// Simulation
+/// Fixed simulation timestep — gameplay never depends on real frame time.
+pub const SIM_DT: f32 = 1.0 / 60.0;
+/// Number of simulation ticks a single agent action is repeated for.
+pub const DEFAULT_ACTION_REPEAT: u32 = 4;
+/// Default seed used for deterministic episodes.
+pub const DEFAULT_SEED: u64 = 0;
+/// Lives an episode starts with.
+pub const STARTING_LIVES: u32 = 3;
+
+// Rewards
+pub const REWARD_PER_BRICK: f32 = 1.0;
+pub const REWARD_LIFE_LOST: f32 = -1.0;
+pub const REWARD_VICTORY: f32 = 10.0;
+pub const REWARD_GAME_OVER: f32 = -5.0;
 
 // --- Collision Helper ---
 
@@ -301,5 +408,88 @@ mod tests {
 
         let lives = Lives::default();
         assert!(lives.count > 0);
+    }
+
+    // --- PaddleAction ---
+
+    #[test]
+    fn paddle_action_default_is_stay() {
+        assert_eq!(PaddleAction::default(), PaddleAction::Stay);
+    }
+
+    #[test]
+    fn paddle_action_directions() {
+        assert_eq!(PaddleAction::Left.direction(), -1.0);
+        assert_eq!(PaddleAction::Stay.direction(), 0.0);
+        assert_eq!(PaddleAction::Right.direction(), 1.0);
+    }
+
+    #[test]
+    fn paddle_action_all_lists_every_variant() {
+        assert_eq!(
+            PaddleAction::all(),
+            [PaddleAction::Left, PaddleAction::Stay, PaddleAction::Right]
+        );
+    }
+
+    // --- BallLaunch ---
+
+    #[test]
+    fn ball_launch_is_fixed_without_randomization() {
+        let mut launch = BallLaunch::new(7, false);
+        let first = launch.next_velocity();
+        let second = launch.next_velocity();
+        assert_eq!(first, second);
+        assert_eq!(
+            first,
+            Vec2::new(BALL_SPEED * BALL_LAUNCH_X_RATIO, BALL_SPEED)
+        );
+    }
+
+    #[test]
+    fn ball_launch_randomizes_but_keeps_speed_and_upward_motion() {
+        let mut launch = BallLaunch::new(42, true);
+        let mut previous = None;
+        let mut any_different = false;
+
+        for _ in 0..10 {
+            let velocity = launch.next_velocity();
+            let speed = Vec2::new(BALL_SPEED * BALL_LAUNCH_X_RATIO, BALL_SPEED).length();
+            assert!((velocity.length() - speed).abs() < 0.01, "Speed preserved");
+            assert!(velocity.y > 0.0, "Ball should always launch upward");
+            if let Some(prev) = previous
+                && prev != velocity
+            {
+                any_different = true;
+            }
+            previous = Some(velocity);
+        }
+
+        assert!(any_different, "Randomized launches should vary");
+    }
+
+    #[test]
+    fn ball_launch_is_deterministic_for_a_seed() {
+        let mut a = BallLaunch::new(123, true);
+        let mut b = BallLaunch::new(123, true);
+        for _ in 0..5 {
+            assert_eq!(a.next_velocity(), b.next_velocity());
+        }
+
+        // Reseeding restarts the exact same sequence
+        a.reseed();
+        let mut fresh = BallLaunch::new(123, true);
+        for _ in 0..5 {
+            assert_eq!(a.next_velocity(), fresh.next_velocity());
+        }
+    }
+
+    // --- Simulation constants ---
+
+    #[test]
+    fn simulation_constants_valid() {
+        assert!(SIM_DT > 0.0);
+        assert!(DEFAULT_ACTION_REPEAT >= 1);
+        assert!(STARTING_LIVES > 0);
     }
 }

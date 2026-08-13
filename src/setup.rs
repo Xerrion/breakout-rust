@@ -22,16 +22,15 @@ pub fn spawn_game(mut commands: Commands) {
     ));
 
     // Ball (starts just above paddle)
-    let ball_start_y = PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
     commands.spawn((
         Sprite {
             color: BALL_COLOR,
             custom_size: Some(Vec2::splat(BALL_SIZE)),
             ..default()
         },
-        Transform::from_xyz(0.0, ball_start_y, 1.0),
+        Transform::from_xyz(0.0, ball_start_y(), 1.0),
         Ball {
-            velocity: Vec2::new(BALL_SPEED * 0.7, BALL_SPEED),
+            velocity: Vec2::new(BALL_SPEED * BALL_LAUNCH_X_RATIO, BALL_SPEED),
         },
     ));
 
@@ -175,6 +174,7 @@ pub fn despawn_overlay(mut commands: Commands, query: Query<Entity, With<Overlay
 
 /// Resets ball and paddle positions when entering Playing state.
 pub fn reset_ball_and_paddle(
+    mut launch: ResMut<BallLaunch>,
     mut paddle_query: Query<&mut Transform, With<Paddle>>,
     mut ball_query: Query<(&mut Transform, &mut Ball), Without<Paddle>>,
 ) {
@@ -184,9 +184,70 @@ pub fn reset_ball_and_paddle(
 
     if let Ok((mut ball_transform, mut ball)) = ball_query.single_mut() {
         ball_transform.translation.x = 0.0;
-        ball_transform.translation.y = PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0;
-        ball.velocity = Vec2::new(BALL_SPEED * 0.7, BALL_SPEED);
+        ball_transform.translation.y = ball_start_y();
+        ball.velocity = launch.next_velocity();
     }
+}
+
+/// Returns the ball's start height, just above the paddle.
+pub fn ball_start_y() -> f32 {
+    PADDLE_Y + PADDLE_HEIGHT / 2.0 + BALL_SIZE / 2.0 + 1.0
+}
+
+/// Despawns every gameplay entity (paddle, ball, bricks and walls).
+#[allow(clippy::type_complexity)]
+pub fn despawn_game_entities(
+    mut commands: Commands,
+    query: Query<Entity, Or<(With<Paddle>, With<Ball>, With<Brick>, With<Wall>)>>,
+) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Spawns the game-over overlay text.
+pub fn spawn_game_over_overlay(mut commands: Commands) {
+    commands.spawn((
+        Text::new("GAME OVER\n\nPress SPACE to restart"),
+        TextFont {
+            font_size: FontSize::Px(40.0),
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.3, 0.3)),
+        TextLayout::justify(Justify::Center),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(35.0),
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        OverlayUi,
+    ));
+}
+
+/// Spawns the victory overlay text.
+pub fn spawn_victory_overlay(mut commands: Commands, scoreboard: Res<Scoreboard>) {
+    commands.spawn((
+        Text::new(format!(
+            "YOU WIN!\n\nScore: {}\n\nPress SPACE to restart",
+            scoreboard.score
+        )),
+        TextFont {
+            font_size: FontSize::Px(40.0),
+            ..default()
+        },
+        TextColor(Color::srgb(0.3, 1.0, 0.3)),
+        TextLayout::justify(Justify::Center),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Percent(30.0),
+            width: Val::Percent(100.0),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        OverlayUi,
+    ));
 }
 
 #[cfg(test)]
@@ -196,6 +257,8 @@ mod tests {
     fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
+        app.init_resource::<BallLaunch>();
+        app.init_resource::<Scoreboard>();
         app
     }
 
@@ -328,5 +391,42 @@ mod tests {
             ball.velocity.y > 0.0,
             "Ball should be moving upward after reset"
         );
+    }
+
+    // --- despawn_game_entities ---
+
+    #[test]
+    fn despawn_game_entities_clears_the_board() {
+        let mut app = test_app();
+        app.add_systems(Startup, spawn_game);
+        app.add_systems(Update, despawn_game_entities);
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query_filtered::<Entity, Or<(With<Paddle>, With<Ball>, With<Brick>, With<Wall>)>>();
+        assert_eq!(q.iter(app.world()).count(), 0, "Board should be empty");
+    }
+
+    // --- overlays ---
+
+    #[test]
+    fn spawn_game_over_overlay_creates_overlay() {
+        let mut app = test_app();
+        app.add_systems(Update, spawn_game_over_overlay);
+        app.update();
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        assert_eq!(q.iter(app.world()).count(), 1);
+    }
+
+    #[test]
+    fn spawn_victory_overlay_creates_overlay() {
+        let mut app = test_app();
+        app.add_systems(Update, spawn_victory_overlay);
+        app.update();
+
+        let mut q = app.world_mut().query::<&OverlayUi>();
+        assert_eq!(q.iter(app.world()).count(), 1);
     }
 }

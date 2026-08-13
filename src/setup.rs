@@ -114,7 +114,7 @@ pub fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("Score: 0"),
         TextFont {
-            font_size: 24.0,
+            font_size: FontSize::Px(24.0),
             ..default()
         },
         TextColor(Color::WHITE),
@@ -131,7 +131,7 @@ pub fn spawn_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("Lives: 3"),
         TextFont {
-            font_size: 24.0,
+            font_size: FontSize::Px(24.0),
             ..default()
         },
         TextColor(Color::WHITE),
@@ -150,11 +150,11 @@ pub fn spawn_menu(mut commands: Commands) {
     commands.spawn((
         Text::new("BREAKOUT\n\nPress SPACE to start"),
         TextFont {
-            font_size: 40.0,
+            font_size: FontSize::Px(40.0),
             ..default()
         },
         TextColor(Color::WHITE),
-        TextLayout::new_with_justify(Justify::Center),
+        TextLayout::justify(Justify::Center),
         Node {
             position_type: PositionType::Absolute,
             top: Val::Percent(35.0),

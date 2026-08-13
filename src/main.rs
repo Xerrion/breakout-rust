@@ -77,7 +77,8 @@ fn main() {
         )
         .add_systems(
             Update,
-            game::pause_input.run_if(in_state(GameState::Playing).or(in_state(GameState::Paused))),
+            game::pause_input
+                .run_if(in_state(GameState::Playing).or_else(in_state(GameState::Paused))),
         )
         // GameOver / Victory
         .add_systems(OnExit(GameState::GameOver), setup::despawn_overlay)
@@ -85,7 +86,7 @@ fn main() {
         .add_systems(
             Update,
             game::restart_input
-                .run_if(in_state(GameState::GameOver).or(in_state(GameState::Victory))),
+                .run_if(in_state(GameState::GameOver).or_else(in_state(GameState::Victory))),
         )
         .add_systems(OnEnter(GameState::Menu), game::respawn_on_menu_enter)
         .run();

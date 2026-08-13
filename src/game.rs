@@ -37,11 +37,11 @@ pub fn check_game_over(
         commands.spawn((
             Text::new("GAME OVER\n\nPress SPACE to restart"),
             TextFont {
-                font_size: 40.0,
+                font_size: FontSize::Px(40.0),
                 ..default()
             },
             TextColor(Color::srgb(1.0, 0.3, 0.3)),
-            TextLayout::new_with_justify(Justify::Center),
+            TextLayout::justify(Justify::Center),
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Percent(35.0),
@@ -69,11 +69,11 @@ pub fn check_victory(
                 scoreboard.score
             )),
             TextFont {
-                font_size: 40.0,
+                font_size: FontSize::Px(40.0),
                 ..default()
             },
             TextColor(Color::srgb(0.3, 1.0, 0.3)),
-            TextLayout::new_with_justify(Justify::Center),
+            TextLayout::justify(Justify::Center),
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Percent(30.0),
@@ -202,7 +202,7 @@ pub fn spawn_pause_overlay(mut commands: Commands, mut menu_state: ResMut<PauseM
             parent.spawn((
                 Text::new("PAUSED"),
                 TextFont {
-                    font_size: 48.0,
+                    font_size: FontSize::Px(48.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
@@ -231,7 +231,7 @@ pub fn spawn_pause_overlay(mut commands: Commands, mut menu_state: ResMut<PauseM
                 .with_child((
                     Text::new("Resume"),
                     TextFont {
-                        font_size: 24.0,
+                        font_size: FontSize::Px(24.0),
                         ..default()
                     },
                     TextColor(Color::WHITE),
@@ -254,7 +254,7 @@ pub fn spawn_pause_overlay(mut commands: Commands, mut menu_state: ResMut<PauseM
                 .with_child((
                     Text::new("Quit"),
                     TextFont {
-                        font_size: 24.0,
+                        font_size: FontSize::Px(24.0),
                         ..default()
                     },
                     TextColor(Color::WHITE),
